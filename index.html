@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="fi">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#f8f5fe" />
+    <meta name="description" content="Luo oma pehmo ja pompi pehmeiden esteratojen maaliin." />
+    <title>Fluff, Don’t Fall!</title>
+    <link rel="icon" href="assets/paw.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+    <script defer src="plush-options.js"></script>
+    <script defer src="profiles.js"></script>
+    <script defer src="sound.js"></script>
+    <script defer src="critters.js"></script>
+    <script defer src="village.js"></script>
+    <script defer src="sky-charms.js"></script>
+    <script defer src="petal-rain.js"></script>
+    <script defer src="flower-scenery.js"></script>
+    <script defer src="sky-neighbors.js"></script>
+    <script defer src="sky-friends.js"></script>
+    <script defer src="fairground.js"></script>
+    <script defer src="pad-styles.js"></script>
+    <script defer src="sky-rides.js"></script>
+    <script defer src="obstacles.js"></script>
+    <script defer src="courses.js"></script>
+    <script defer src="endless.js"></script>
+    <script defer src="endless-scenery.js"></script>
+    <script defer src="sky-balloons.js"></script>
+    <script defer src="clouds.js"></script>
+    <script defer src="world.js"></script>
+    <script defer src="plush-outfits.js"></script>
+    <script defer src="plush-wings.js"></script>
+    <script defer src="plush.js"></script>
+    <script defer src="game.js"></script>
+    <script defer src="village-chat.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="header-inner">
+        <a href="#aula" class="brand" aria-label="Fluff, peliaula"
+          ><span class="brand-mark" data-icon="paw"></span
+          ><span>Fluff<span class="brand-dot">.</span></span></a
+        >
+        <nav aria-label="Päävalikko">
+          <button id="home-nav" class="nav-item current" aria-current="page">
+            <i data-icon="gamepad"></i><span>Peliaula</span>
+          </button>
+          <button id="plush-nav" class="nav-item">
+            <i data-icon="bear"></i><span>Omat pehmot</span>
+          </button>
+        </nav>
+        <div class="tools">
+          <button class="help-button" id="help"><i data-icon="book"></i><span>Peliohjeet</span></button>
+          <button class="sound-button" id="music" aria-label="Mykistä musiikki">
+            <i data-icon="music"></i>
+          </button>
+          <button class="sound-button" id="sound" aria-label="Mykistä äänitehosteet">
+            <i data-icon="volume"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+    <main id="aula" class="page">
+      <section class="hero" aria-labelledby="game-title">
+        <div class="stitch" aria-hidden="true"></div>
+        <div class="hero-copy">
+          <div class="title-wrap">
+            <span class="spark spark-one" aria-hidden="true">✦</span>
+            <h1 id="game-title" aria-label="Fluff, Don’t Fall!">
+              <span>Fluff,</span><span>Don’t Fall!</span>
+            </h1>
+            <span class="spark spark-two" aria-hidden="true">✦</span>
+          </div>
+          <p>Luo oma pehmosi ja pompi pilviratojen maaliin!</p>
+          <form id="name-form" class="hero-form">
+            <label for="name">Pehmosi nimi</label>
+            <div class="input-row">
+              <div class="name-input">
+                <i data-icon="paw"></i
+                ><input
+                  id="name"
+                  name="name"
+                  required
+                  maxlength="24"
+                  autocomplete="off"
+                  placeholder="Kirjoita nimi…"
+                  aria-label="Pehmosi nimi"
+                />
+              </div>
+              <button type="submit" class="yellow-button"><i data-icon="play"></i>Aloita peli</button>
+            </div>
+          </form>
+          <section
+            class="hero-profile-picker"
+            id="lobby-profile-picker"
+            aria-labelledby="lobby-profile-heading"
+            hidden
+          >
+            <div class="hero-profile-heading">
+              <h2 id="lobby-profile-heading">Valitse pehmo</h2>
+              <button type="button" class="yellow-button" id="lobby-new-profile">
+                <i data-icon="plus"></i>Uusi pehmo
+              </button>
+            </div>
+            <div class="profile-picker-list" id="lobby-profile-list"></div>
+          </section>
+          <div id="active-profile" hidden></div>
+        </div>
+      </section>
+      <section class="courses" id="radat" aria-labelledby="course-heading">
+        <div class="section-head">
+          <div class="section-title">
+            <span class="flag-chip" data-icon="flag"></span>
+            <h2 id="course-heading">Hyppyradat</h2>
+          </div>
+          <span class="course-count" id="course-count"></span>
+        </div>
+        <div class="course-grid" id="course-grid"></div>
+      </section>
+      <footer>
+        <span><i data-icon="save"></i>Edistyminen tallentuu tälle laitteelle</span
+        ><span class="local"><b></b>Paikallinen peli</span>
+      </footer>
+    </main>
+    <section id="play-screen" aria-label="Hyppyrata" hidden>
+      <canvas id="world" tabindex="0" aria-label="Kolmiulotteinen hyppyrata"></canvas>
+      <div class="hud">
+        <div class="hud-level">
+          <i data-icon="flag"></i>
+          <div><strong id="hud-title"></strong><small id="hud-player"></small></div>
+        </div>
+        <div class="hud-progress">
+          <div class="hud-meter">
+            <span id="hud-step"></span>
+            <div id="hud-bar"><b id="hud-fill"></b></div>
+            <small id="hud-best" hidden></small>
+            <small id="ride-status" hidden></small>
+          </div>
+          <div class="hud-counts">
+            <span id="hud-stars" role="img" aria-label="Kerätty 0 tassumerkkiä">
+              <i data-icon="badge"></i><b id="hud-star-count">0</b>
+            </span>
+            <span id="hud-lives" role="img" aria-label="Elämiä jäljellä 3/3">
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                stroke-width="1.8"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 20S3 14.4 3 8.9a4.7 4.7 0 0 1 9-1.9 4.7 4.7 0 0 1 9 1.9c0 5.5-9 11.1-9 11.1Z"
+                />
+              </svg>
+              <b id="hud-life-count">3/3</b>
+            </span>
+          </div>
+        </div>
+        <div class="hud-right">
+          <span class="time-pill"><i data-icon="clock"></i><b id="hud-time">0:00</b></span
+          ><button
+            class="round-button"
+            id="camera"
+            aria-label="Vaihda kuvakulmaa"
+            title="Vaihda kuvakulmaa (V)"
+          >
+            <i data-icon="camera"></i></button
+          ><button class="round-button" id="pause" aria-label="Tauko"><i data-icon="pause"></i></button>
+        </div>
+      </div>
+      <span class="crosshair" aria-hidden="true"></span>
+      <div id="gift-reveal" role="status" hidden>
+        <i data-icon="gift"></i>
+        <div><strong id="gift-name"></strong><small id="gift-detail"></small></div>
+      </div>
+      <div id="village-greeting" role="status"></div>
+      <button id="village-talk" type="button" aria-haspopup="dialog" hidden>
+        <strong id="village-name"></strong>
+        <span id="village-hello"></span>
+        <small>Juttele <kbd aria-hidden="true">T</kbd></small>
+      </button>
+      <div class="key-hint">
+        WASD <span>Liiku</span> · Hiiri / ← → <span>Katso</span> · Välilyönti <span>Hyppää</span> · 2×
+        välilyönti <span>Pyörähdä</span> · V
+        <span>Kuvakulma</span>
+      </div>
+      <div class="touch-pad" aria-label="Liiku">
+        <button data-move="KeyW" aria-label="Eteen">▲</button
+        ><button data-move="KeyA" aria-label="Vasemmalle">◀</button
+        ><button data-move="KeyS" aria-label="Taakse">▼</button
+        ><button data-move="KeyD" aria-label="Oikealle">▶</button>
+      </div>
+      <button
+        id="touch-jump"
+        class="touch-jump"
+        aria-description="Napauta ilmassa uudelleen tehdäksesi pyörähdyshypyn"
+      >
+        Hyppää
+      </button>
+    </section>
+    <dialog id="modal" aria-labelledby="modal-title">
+      <button id="close-modal" class="dialog-x" aria-label="Sulje"><i data-icon="x"></i></button>
+      <div id="modal-body"></div>
+    </dialog>
+    <div role="status" aria-live="polite" id="toast"></div>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 105 92">
+  <defs>
+    <linearGradient id="blue" x2=".3" y2="1">
+      <stop stop-color="#d9f3ec"/>
+      <stop offset=".6" stop-color="#a9d7dc"/>
+      <stop offset="1" stop-color="#7cabc4"/>
+    </linearGradient>
+    <path id="star" d="M39 8q4-6 7 0l11 22 25 4q6 1 1 6L65 57l5 25q1 6-5 3L43 73 21 85q-6 3-5-3l4-25L2 40q-4-5 2-6l25-4Z"/>
+  </defs>
+  <rect x="40" y="62" width="61" height="17" rx="8" transform="rotate(-9 70 70)" fill="#e3b77e" stroke="#ba906a" stroke-width="2"/>
+  <path d="m75 71 15-2" stroke="#ffe9ad" stroke-width="2" stroke-linecap="round"/>
+  <use href="#star" x="6" y="3" fill="#537b91" opacity=".24"/>
+  <use href="#star" x="6" fill="url(#blue)" stroke="#79a9c0" stroke-width="2" stroke-linejoin="round"/>
+  <path d="m49 14 11 20 24 4-18 17 4 24-21-12-21 12 4-24-17-17 23-4Z" fill="none" stroke="#e6f5e7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 3"/>
+  <path d="M41 35q-1 8-8 9 7 1 8 9 1-8 8-9-7-1-8-9Z" fill="#f4fae6"/>
+</svg>

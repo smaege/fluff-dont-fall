@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 94 99">
+  <defs>
+    <linearGradient id="felt" x2=".35" y2="1">
+      <stop stop-color="#ffabb2"/>
+      <stop offset=".55" stop-color="#e98193"/>
+      <stop offset="1" stop-color="#c85d74"/>
+    </linearGradient>
+    <linearGradient id="leaf" x2=".25" y2="1">
+      <stop stop-color="#d1e3a7"/>
+      <stop offset="1" stop-color="#84ac71"/>
+    </linearGradient>
+    <path id="fruit" d="M47 89C35 89 11 66 9 47c-2-17 13-26 26-25 5 0 9 2 12 4 4-2 8-4 13-4 13-1 27 8 25 25-2 19-26 42-38 42Z"/>
+  </defs>
+  <g transform="rotate(-12 47 49)">
+    <use href="#fruit" y="3" fill="#895568" opacity=".26"/>
+    <use href="#fruit" fill="url(#felt)" stroke="#bb6075" stroke-width="2"/>
+    <path d="M17 42c2-7 9-12 16-12m-14 25c5 11 16 22 25 26m24-8q9-9 12-24" fill="none" stroke="#ffc2c4" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2 4"/>
+    <path d="M47 33C36 33 25 25 22 16c9-1 18 3 23 11-5-10-4-18 2-23 6 5 7 14 3 22 6-8 14-13 23-12-3 9-13 19-26 19Z" fill="url(#leaf)" stroke="#7da46a" stroke-width="1.8"/>
+    <g fill="#ffe5a9">
+      <ellipse cx="31" cy="45" rx="2.3" ry="4" transform="rotate(-18 31 45)"/>
+      <ellipse cx="64" cy="45" rx="2.3" ry="4" transform="rotate(22 64 45)"/>
+      <ellipse cx="47" cy="52" rx="2.3" ry="4"/>
+      <ellipse cx="35" cy="64" rx="2.3" ry="4" transform="rotate(-16 35 64)"/>
+      <ellipse cx="59" cy="64" rx="2.3" ry="4" transform="rotate(18 59 64)"/>
+      <ellipse cx="47" cy="74" rx="2.3" ry="4"/>
+    </g>
+  </g>
+</svg>

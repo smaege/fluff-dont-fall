@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 107 84">
+  <defs>
+    <linearGradient id="cloud" x2=".25" y2="1">
+      <stop stop-color="#f4f8ee"/>
+      <stop offset=".56" stop-color="#dcecef"/>
+      <stop offset="1" stop-color="#accbde"/>
+    </linearGradient>
+    <linearGradient id="drop" x2=".25" y2="1">
+      <stop stop-color="#b5e0e8"/>
+      <stop offset="1" stop-color="#7badcf"/>
+    </linearGradient>
+    <path id="puff" d="M21 54C10 54 5 48 5 40c0-11 9-17 19-16 2-8 10-14 20-12C50 5 56 3 64 5c12 2 20 12 20 22 10-2 19 3 19 13 0 8-6 14-16 14Z"/>
+    <path id="rain" d="M35 60c0 0-9 9-9 14a7 7 0 0 0 14 0c0-5-5-14-5-14Z"/>
+  </defs>
+  <use href="#puff" y="3" fill="#66899e" opacity=".24"/>
+  <use href="#puff" fill="url(#cloud)" stroke="#99bacf" stroke-width="2"/>
+  <path d="M12 40c0-8 8-12 17-11 3-9 8-13 17-11 14-17 32-5 32 14 11-4 18 1 18 8 0 6-4 8-11 8H24" fill="none" stroke="#f7fbf4" stroke-width="1.9" stroke-linecap="round" stroke-dasharray="2 3"/>
+  <g fill="url(#drop)" stroke="#80aac5" stroke-width="1.4">
+    <use href="#rain"/>
+    <use href="#rain" transform="translate(36 -1)"/>
+  </g>
+</svg>

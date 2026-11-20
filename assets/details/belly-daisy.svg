@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="petals" x2=".25" y2="1">
+      <stop stop-color="#fffdf0"/>
+      <stop offset=".62" stop-color="#fff2d9"/>
+      <stop offset="1" stop-color="#ead4bd"/>
+    </linearGradient>
+    <radialGradient id="gold" cx=".36" cy=".3" r=".75">
+      <stop stop-color="#ffecae"/>
+      <stop offset=".65" stop-color="#efc16a"/>
+      <stop offset="1" stop-color="#dba050"/>
+    </radialGradient>
+    <ellipse id="petal" cx="50" cy="29" rx="10" ry="23"/>
+  </defs>
+  <circle cx="50" cy="54" r="28" fill="#a4826a" opacity=".17"/>
+  <g fill="url(#petals)" stroke="#dfc4af" stroke-width="1.6">
+    <use href="#petal"/>
+    <use href="#petal" transform="rotate(45 50 50)"/>
+    <use href="#petal" transform="rotate(90 50 50)"/>
+    <use href="#petal" transform="rotate(135 50 50)"/>
+    <use href="#petal" transform="rotate(180 50 50)"/>
+    <use href="#petal" transform="rotate(225 50 50)"/>
+    <use href="#petal" transform="rotate(270 50 50)"/>
+    <use href="#petal" transform="rotate(315 50 50)"/>
+  </g>
+  <circle cx="50" cy="52" r="18.5" fill="#a9754e" opacity=".21"/>
+  <circle cx="50" cy="50" r="18" fill="url(#gold)" stroke="#d8a35a" stroke-width="1.8"/>
+  <circle cx="50" cy="50" r="13.4" fill="none" stroke="#fff0ba" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="2 3.4"/>
+</svg>
