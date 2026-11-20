@@ -136,6 +136,14 @@
       // Leave the foreground animals their own space and clear the track on sharp bends.
       const openingSide = Math.abs(x) > 3.05 ? -Math.sign(x) : animalsOnLeft ? 1 : -1;
       pairX = openingSide * 4.1;
+    } else {
+      const next = course.path[at - (course.firstIndex || 0) + 1];
+      // The camera can trail behind the next landing and reach the inside of a bend.
+      if (next && next[1] - next[4] / 2 - (z + 0.9) < 4.45) {
+        const [nextX, , , nextWidth, , nextTravel = 0] = next;
+        const clearance = nextWidth / 2 + nextTravel + 2.7;
+        pairX = side * Math.max(side * pairX, side * nextX + clearance);
+      }
     }
     return {
       at,

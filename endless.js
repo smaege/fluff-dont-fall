@@ -16,8 +16,10 @@
   };
   const batch = 12;
   const earlyHazards = ['bun', 'bee', 'hurdle', 'ball'];
-  const middleHazards = [...earlyHazards, 'hoops', 'pendulum', 'hedgehog'];
-  const lateHazards = [...middleHazards, 'shutter', 'sweeper', 'moth'];
+  const middleHazards = [...earlyHazards, 'hoops', 'pendulum', 'hedgehog', 'jumpRope'];
+  const lateHazards = [...middleHazards, 'shutter', 'sweeper', 'moth', 'zipperGate'];
+  const hazardDecks = [earlyHazards, middleHazards, lateHazards, [...lateHazards, 'pillowPress']];
+  const tierOpeners = ['bun', 'jumpRope', 'zipperGate', 'pillowPress'];
   const trails = [
     [1, 1, 0.5, -0.6, -1, -0.7],
     [1, -0.5, -1, 0.4, 1, 0.8],
@@ -39,6 +41,8 @@
       nextGift: 2,
       checkpoints: [],
       nextHazard: 4,
+      nextCombination: 48,
+      combinationType: 'ropeGate',
       nextSpecial: 6,
       nextKind: 'crumble',
       hazardDeck: [],
@@ -53,19 +57,29 @@
       },
     };
   }
-  function appendHazard(run, index, difficulty) {
-    const tier = index < 12 ? 0 : index < 24 ? 1 : 2;
+  function chooseHazard(run, index) {
+    if (index >= run.nextCombination) {
+      const type = run.combinationType;
+      run.combinationType = type === 'ropeGate' ? 'gatePress' : 'ropeGate';
+      run.nextCombination = index + (index < 96 ? 12 : 8);
+      return type;
+    }
+    const tier = index < 12 ? 0 : index < 24 ? 1 : index < 42 ? 2 : 3;
     const newTier = tier !== run.hazardTier;
     if (newTier || !run.hazardDeck.length) {
-      run.hazardDeck = [...[earlyHazards, middleHazards, lateHazards][tier]];
+      run.hazardDeck = [...hazardDecks[tier]];
       run.hazardTier = tier;
     }
     const last = run.hazards.at(-1)?.type;
     const candidates = run.hazardDeck.filter((type) => type !== last);
     const type = newTier
-      ? ['bun', 'hoops', 'shutter'][tier]
+      ? tierOpeners[tier]
       : candidates[Math.floor(run.random() * candidates.length)] || run.hazardDeck[0];
     run.hazardDeck.splice(run.hazardDeck.indexOf(type), 1);
+    return type;
+  }
+  function appendHazard(run, index, difficulty) {
+    const type = chooseHazard(run, index);
     const hazard = { at: index, type, rate: 1.15 + 0.95 * difficulty };
     if (type === 'pendulum') hazard.amplitude = 1.02 + 0.29 * difficulty;
     if (type === 'ball') hazard.amplitude = 0.62 + 0.38 * difficulty;
@@ -163,7 +177,7 @@
     } else if (kind) {
       const spacing = difficulty >= 0.65 ? 2 : difficulty >= 0.35 ? 3 : 4;
       run.nextSpecial = index + spacing;
-      run.nextKind = kind === 'crumble' ? 'tilt' : 'crumble';
+      run.nextKind = kind === 'crumble' ? 'tilt' : kind === 'tilt' && index >= 18 ? 'gust' : 'crumble';
     } else if (!move && (starRest || --run.safePadsUntilStar === 0)) {
       // Derive pickups from the pad index to keep the route's random sequence intact.
       const bits = Math.imul(run.seed ^ Math.imul(index, 0x9e3779b9), 0x85ebca6b);

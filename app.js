@@ -127,6 +127,7 @@
     }
   }
   function error(message) {
+    window.FluffPortalTravel.cancel();
     window.FluffSkyFriends.hide();
     show(
       '<div class="dialog-mark">' +
@@ -165,23 +166,39 @@
   function badges(n) {
     return n + ' ' + (n === 1 ? 'tassumerkki' : 'tassumerkkiä');
   }
-  const maxLives = window.FluffGame.maxLives;
+  const { maxLives, starsPerLife, endlessFirstLife, endlessLifeStep } = window.FluffGame;
   const lifeRule =
-    'Joka ' + window.FluffGame.starsPerLife + ' tassumerkistä saat lisäelämän, jos elämiä on alle kolme.';
+    'Saat lisäelämän aina ' + starsPerLife + ' tassumerkistä, jos elämiä on alle kolme.';
+  const endlessLifeRule =
+    'Poimi radalta ' + endlessFirstLife + ' tassumerkkiä ensimmäistä lisäelämää varten. ' +
+    'Seuraavaan tarvitset ' + (endlessFirstLife + endlessLifeStep) + ' uutta merkkiä, sitä seuraavaan ' +
+    (endlessFirstLife + 2 * endlessLifeStep) + ' ja niin edelleen. Raja nousee myös täysillä elämillä.';
   function purse(n) {
     return '<span class="star-purse">' + icon('badge') + badges(n) + '</span>';
   }
   function raceKey(course) {
-    return course.id + '-v4';
+    return course.id + (course.difficulty === 'Vaikea' ? '-v6' : '-v5');
   }
-  function earlierBest(p, course) {
-    return p?.completed[course.id + '-v3'] ?? p?.completed[course.id + '-v2'];
+  const previousRaces = [
+    ['-v5', 'Ennätys ennen yhdistelmäesteitä'],
+    ['-v4', 'Edellisen rataversion ennätys'],
+    ['-v3', 'Yllätyslaatikkoradan ennätys'],
+    ['-v2', 'Aiemman esteradan ennätys'],
+  ];
+  function previousResults(p, course) {
+    if (!p) return [];
+    return previousRaces
+      .filter(([version]) => {
+        const key = course.id + version;
+        return key !== raceKey(course) && p.completed[key] !== undefined;
+      })
+      .map(([version, label]) => ({ label, seconds: p.completed[course.id + version] }));
   }
   function completedCount(p) {
     return courses.filter(
       (c) =>
         Object.hasOwn(p.completed, raceKey(c)) ||
-        earlierBest(p, c) !== undefined ||
+        previousResults(p, c).length > 0 ||
         Object.hasOwn(p.completed, c.id),
     ).length;
   }
@@ -231,13 +248,14 @@
       }
       const best = profile?.completed[raceKey(c)];
       const shortBest = profile?.completed[c.id];
+      const previous = previousResults(profile, c)[0]?.seconds;
       let caption = c.caption;
       if (c.endless && profile?.endlessBest) caption = 'Ennätys ' + jumps(profile.endlessBest);
       else if (best !== undefined) caption = 'Ennätys ' + time(best);
-      else if (earlierBest(profile, c) !== undefined) caption = 'Aiempi rata läpäisty';
+      else if (previous !== undefined) caption = 'Aiempi ennätys ' + time(previous);
       else if (shortBest !== undefined) caption = 'Lyhyt rata läpäisty';
       card.innerHTML =
-        '<span class="level-picture"><img src="assets/' +
+        '<span class="level-picture"><img loading="lazy" decoding="async" src="assets/' +
         c.id +
         '.webp" alt="">' +
         levelBadge(c) +
@@ -247,7 +265,7 @@
         caption +
         '</small></span><i class="card-play">' +
         icon(
-          best !== undefined || earlierBest(profile, c) !== undefined || shortBest !== undefined
+          best !== undefined || previous !== undefined || shortBest !== undefined
             ? 'check'
             : 'play',
         ) +
@@ -310,6 +328,7 @@
     toast('Valitse rata pehmollesi.');
   }
   function editor(initialSection = 'body') {
+    profile = store.find(profile.name) ?? profile;
     const { exclusives, aerialExclusives, flowerGifts, dyeSlots, dyes, originalDyes } =
       window.FluffLooks;
     const flowerGiftCourses = new Map(
@@ -319,6 +338,7 @@
       ]),
     );
     const draft = { ...profile.appearance };
+    const gifts = profile.unlocked.filter(store.isGift);
     let section = initialSection,
       gearGroup = 'hat',
       preview = null,
@@ -331,10 +351,12 @@
       gear: 'Varusteet',
       item: 'Tavarat',
     };
+    if (gifts.length) sections.gifts = 'Lahjat';
     const gearGroups = { hat: 'Hatut', shoes: 'Kengät', wings: 'Siivet' };
     // Camera yaw and elevation in radians. Zero yaw looks straight at the belly.
     const views = {
       body: [0.1, 0.1],
+      gifts: [0.22, 0.1],
       face: [0, 0.08],
       patch: [0, 0.05],
       outfit: [0.22, 0.1],
@@ -493,9 +515,6 @@
         return { label: 'Yllätyslaatikosta', hint: 'Löydät tämän varusteen yllätyslaatikosta.' };
       return null;
     }
-    function locked(sku, source = giftSource(sku)) {
-      return (Object.hasOwn(prices, sku) || source !== null) && !profile.unlocked.includes(sku);
-    }
     function group(key, title, mode = 'text', showLegend = true) {
       const selectedValue = fittedValue(key);
       const colorLabel = mode === 'swatches' && key !== 'color' ? choices[key][selectedValue] : null;
@@ -517,7 +536,7 @@
             const label = Array.isArray(value) ? value[0] : value;
             const sku = key + ':' + id;
             const source = giftSource(sku);
-            const isLocked = locked(sku, source);
+            const isLocked = store.isLocked(sku, profile.unlocked);
             const swatch = Array.isArray(value)
               ? value[1]
               : (dyes[id] ??
@@ -537,7 +556,7 @@
                 '</span>';
             if (isLocked)
               content += source
-                ? '<small class="box-source">' + escape(source.label) + '</small>'
+                ? '<small class="box-source">Sovita · ' + escape(source.label) + '</small>'
                 : '<small class="star-price">' + icon('badge') + prices[sku] + '</small>';
             return (
               '<button type="button" class="choice ' +
@@ -550,7 +569,7 @@
               (selectedValue === id) +
               '" aria-label="' +
               escape(label) +
-              (isLocked ? ', ' + (source ? escape(source.label) : badges(prices[sku])) : '') +
+              (isLocked ? ', ' + (source ? 'Sovita · ' + escape(source.label) : badges(prices[sku])) : '') +
               '" title="' +
               escape(label) +
               '"' +
@@ -566,6 +585,28 @@
     }
     function dyeRow(field, title) {
       return fittedValue(dyeSlots[field]) === 'none' ? '' : group(field, title, 'swatches');
+    }
+    function giftChoices() {
+      return (
+        '<div class="choices models">' +
+        gifts
+          .map((sku) => {
+            const [key, value] = sku.split(':');
+            const label = escape(choices[key][value]);
+            const equipped = draft[key] === value;
+            const action = equipped ? 'Riisu' : 'Pue';
+            return (
+              '<button type="button" class="choice" data-group="' + key +
+              '" data-value="' + value +
+              '" aria-pressed="' + equipped +
+              '" aria-label="' + action + ' ' + label + '">' +
+              avatar({ ...draft, [key]: value }) + '<span>' + label + '</span>' +
+              '<small class="gift-action">' + action + '</small></button>'
+            );
+          })
+          .join('') +
+        '</div>'
+      );
     }
     function update(viewKey, viewValue) {
       for (const tab of body.querySelectorAll('[data-section]'))
@@ -615,6 +656,8 @@
             gearGroup + 'Dye',
             { hat: 'Hatun väri', shoes: 'Kenkien väri', wings: 'Siipien väri' }[gearGroup],
           );
+      else if (section === 'gifts')
+        html = giftChoices();
       else
         html =
           group('item', 'Tassuun', 'models') + offerSlot('item') + dyeRow('itemDye', 'Tavaran väri');
@@ -719,10 +762,13 @@
       const { group: key, value } = option.dataset;
       const sku = key + ':' + value;
       const previousValue = fittedValue(key);
-      if (preview && dyeSlots[key] === preview.key) {
+      if (key === 'ears' && value !== previousValue) sound.effect(value, 0.7);
+      if (section === 'gifts') {
+        draft[key] = draft[key] === value ? 'none' : value;
+      } else if (preview && dyeSlots[key] === preview.key) {
         preview.colors[key] = value;
       } else {
-        preview = locked(sku) ? { key, value, colors: {} } : null;
+        preview = store.isLocked(sku, profile.unlocked) ? { key, value, colors: {} } : null;
         if (!preview) draft[key] = value;
       }
       $('edit-error').textContent = '';
@@ -730,6 +776,7 @@
       choiceList
         .querySelector('[data-group="' + key + '"][data-value="' + value + '"]')
         .focus();
+      if (preview) $('fit-offer').scrollIntoView({ block: 'nearest' });
     };
     update();
     $('save-look').onclick = () => {
@@ -799,16 +846,21 @@
   function syncSound() {
     const on = sound.enabled(),
       label = on ? 'Mykistä äänitehosteet' : 'Laita äänitehosteet päälle';
-    $('sound').innerHTML = icon(on ? 'volume' : 'mute');
-    $('sound').title = label;
-    $('sound').setAttribute('aria-label', label);
-    $('sound').setAttribute('aria-pressed', String(on));
+    for (const button of [$('sound'), $('pause-sound')]) {
+      if (!button) continue;
+      button.innerHTML = icon(on ? 'volume' : 'mute') +
+        (button.id === 'pause-sound' ? (on ? 'Tehosteet päällä' : 'Tehosteet pois') : '');
+      button.title = label;
+      button.setAttribute('aria-label', label);
+      button.setAttribute('aria-pressed', String(on));
+    }
   }
-  $('sound').onclick = () => {
+  function toggleSound() {
     sound.toggle();
     syncSound();
     sound.play('click');
-  };
+  }
+  $('sound').onclick = toggleSound;
   let thirdPerson = false;
   try {
     thirdPerson = localStorage.getItem('fluff-camera') === 'follow';
@@ -876,15 +928,16 @@
       '<div class="dialog-mark">' +
         icon('book') +
         '</div><h2 id="modal-title">Peliohjeet</h2><p>Aloitat uuden pelin kolmella elämällä. Putoaminen tai törmäys vie yhden elämän. Voit jatkaa viimeiseltä välilipulta niin kauan kuin elämiä riittää.</p>' +
-        '<p>Kosketa leijuvia tassumerkkejä. ' +
+        '<p>Kosketa leijuvia tassumerkkejä. Tavallisilla radoilla saat merkkejä myös paketeista. ' +
         lifeRule +
-        ' Kun jatkat maalista seuraavalle radalle, elämät ja matka seuraavaan lisäelämään säilyvät. Tassumerkit kertyvät myös pehmosi kukkaroon. Voit avata niillä varusteita Pehmopajassa.</p>' +
-        '<p>Kosketa rusettipakettia avataksesi sen. Sisältä voi löytyä lisäelämä, tassumerkkejä tai omaan Pehmopajaasi uusi varuste. Jos elämät ovat täynnä, elämäpalkinnosta saa tassumerkkejä. Voit sovittaa lahjoja pajassa.</p>' +
-        '<p>Pilvivaelluksella pehmon vauhti kasvaa vähitellen sitä mukaa kuin etenet radalla.</p>' +
+        ' Kun astut maalista portaaliin, elämät ja seuraavaa lisäelämää varten kertyneet merkit siirtyvät mukanasi. Kaikki tassumerkit kertyvät pehmosi kukkaroon. Voit avata niillä varusteita Pehmopajassa.</p>' +
+        '<p>Kosketa rusettipakettia avataksesi sen. Sisältä voi löytyä tassumerkkejä tai uusi varuste. Tavallisilla radoilla lisäelämä on harvinainen pakettipalkinto. Täysillä elämillä saat elämäpalkinnosta tassumerkkejä. Pue löydetyt varusteet Pehmopajan Lahjat-välilehdeltä.</p>' +
+        '<p>Pilvivaelluksella pehmon vauhti kasvaa matkan varrella. ' + endlessLifeRule +
+        ' Paketeista saadut merkit menevät suoraan kukkaroon.</p>' +
         '<p>Anna pupun tassutella sivuun tai hyppää sen yli. Kun pörriäinen nousee korkealle, voit juosta sen alta. Kulje verhon ali vihreällä valolla ja tähtää karkkipuomin liikkuvaan aukkoon.</p>' +
         '<p>Putoava laatta heilahtaa, kun laskeudut sille. Hyppää pois ennen kuin laatta putoaa. Laskeudu keikkuvan laudan keskelle ja ohjaa takaisin keskelle, jos alat liukua. Ajoita hyppysi esteiden yli.</p>' +
         '<p>Voit kävellä suoraan portaille. Jokainen askelma kantaa viisi sekuntia. Saat uudet viisi sekuntia, kun astut sille uudelleen. Pudonnut askelma palaa pian paikalleen. Huipulta pääset sateenkaariliukuun.</p>' +
-        '<p>Paina välilyöntiä tai Hyppää-painiketta ja paina sitä ilmassa uudelleen. Pehmo pyörähtää ja hyppää korkeammalle. Kokeile tätä siivekkään paketin alla. Paketista löytyy uusi varuste tai kuusi tassumerkkiä, kun olet löytänyt molemmat varusteet.</p>' +
+        '<p>Välilyönnin tai Hyppää-painikkeen näpäytys riittää hyppyyn. Pehmo jatkaa ilmassa ponnistussuuntaan, ja voit ohjata sitä kohti laskeutumispaikkaa. Toinen näpäytys ilmassa tekee pyörähdyshypyn. Sillä yllät siipipakettiin, josta saat varusteen tai molemmat varusteet löydettyäsi kuusi tassumerkkiä.</p>' +
         '<div class="control-list"><div><strong>Liiku</strong><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span></div><div><strong>Katso ympärillesi</strong><span>Hiiri tai <kbd>←</kbd> <kbd>→</kbd></span></div><div><strong>Hyppää</strong><kbd>Välilyönti</kbd></div><div><strong>Vaihda kuvakulmaa</strong><kbd>V</kbd></div><div><strong>Juttele kyläläiselle</strong><kbd>T</kbd></div><div><strong>Musiikki päälle / pois</strong><kbd>M</kbd></div><div><strong>Tauko</strong><span><kbd>Esc</kbd> / <kbd>P</kbd></span></div></div><p class="note">Voit kääntää katsetta myös vetämällä näkymää. Kosketusnäytöllä liikut ja hyppäät ruudun painikkeilla. Napauta kyläläisen puhekuplaa, kun haluat jutella.</p><p class="note">Samalla nimellä löydät pehmosi ja sen parhaat rata-ajat tästä selaimesta.</p><div class="dialog-actions"><button class="primary" id="help-ok">Selvä!</button></div>',
     );
     $('help-ok').onclick = close;
@@ -904,10 +957,9 @@
         c.description +
         '</p><p class="note">' +
         'Aloitat kolmella elämällä. ' +
-        lifeRule +
         (c.endless
-          ? ' Vauhti kasvaa vähitellen radan edetessä.'
-          : ' Maalilaatan portaalista pääset seuraavalle radalle.') +
+          ? endlessLifeRule + ' Pakettien merkit menevät kukkaroon. Vauhti kasvaa radan edetessä.'
+          : lifeRule + ' Maalilaatan portaalista pääset seuraavalle radalle.') +
         '</p><div class="stat-line"><span>Pehmo</span><strong>' +
         escape(profile.name) +
         '</strong></div>' +
@@ -919,17 +971,13 @@
         (best !== undefined
           ? '<div class="stat-line"><span>Oma ennätys</span><strong>' + time(best) + '</strong></div>'
           : '') +
-        [
-          ['-v3', 'Yllätyslaatikkoradan ennätys'],
-          ['-v2', 'Aiemman esteradan ennätys'],
-        ]
-          .filter(([version]) => profile.completed[c.id + version] !== undefined)
+        previousResults(profile, c)
           .map(
-            ([version, label]) =>
+            ({ seconds, label }) =>
               '<div class="stat-line"><span>' +
               label +
               '</span><strong>' +
-              time(profile.completed[c.id + version]) +
+              time(seconds) +
               '</strong></div>',
           )
           .join('') +
@@ -970,6 +1018,7 @@
     leaveCourse();
   }
   function leaveCourse() {
+    window.FluffPortalTravel.cancel();
     game?.stop();
     close();
     resetVillageChat();
@@ -1124,16 +1173,18 @@
     toggles.className = 'pause-settings';
     toggles.innerHTML =
       '<button id="pause-camera" type="button"></button><button id="pause-music" type="button"></button>' +
-      '<button id="pause-petals" type="button"></button>';
+      '<button id="pause-sound" type="button"></button><button id="pause-petals" type="button"></button>';
     body.querySelector('.dialog-actions').before(toggles);
     $('pause-camera').onclick = toggleCamera;
     $('pause-music').onclick = toggleMusic;
+    $('pause-sound').onclick = toggleSound;
     $('pause-petals').onclick = () => {
       window.FluffPetalRain.toggle();
       syncControls();
       game.draw();
       window.FluffSkyFriends.hide();
     };
+    syncSound();
     syncControls();
   }
   let creditedStars = 0,
@@ -1142,8 +1193,10 @@
     retryRewardsAt = 0,
     shownGifts = 0;
   function lifeHint(state) {
-    if (state.lives === maxLives) return 'Kaikki kolme elämää ovat tallella.';
-    return 'Lisäelämään vielä ' + badges(window.FluffGame.starsPerLife - state.lifeProgress) + '.';
+    const remaining = badges(state.lifeGoal - state.lifeProgress);
+    if (state.lives === maxLives)
+      return 'Kaikki kolme elämää ovat tallella. Seuraavaan rajaan tarvitaan vielä ' + remaining + '.';
+    return 'Lisäelämään tarvitaan vielä ' + remaining + '.';
   }
   function lives(n) {
     return n + (n === 1 ? ' elämä' : ' elämää');
@@ -1234,6 +1287,11 @@
     hedgehog: 'Siili käpertyy ennen kierähdystä. Hyppää yli tai odota, että se menee ohi.',
     shutter: 'Pysähdy verhon eteen. Kun valo on vihreä ja verho ylhäällä, juokse ali.',
     hoops: 'Tähtää liikkuvaan aukkoon tai hyppää matalan karkkipuomin yli.',
+    jumpRope: 'Hyppää narun yli, kun se pyyhkäisee sinua kohti.',
+    zipperGate: 'Seuraa tilkkuseinän aukkoa ja pujota pehmo siitä läpi.',
+    pillowPress: 'Juokse leimasimen ali vihreällä. Keltainen valo varoittaa painalluksesta.',
+    ropeGate: 'Tähtää liikkuvaan aukkoon jo ponnistaessa. Hyppää narun yli portista läpi!',
+    gatePress: 'Pujahda aukosta. Portin ja leimasimen välissä voit odottaa vihreää valoa.',
   };
   const introducedHazards = new Set();
   function finished(outcome, seconds) {
@@ -1288,7 +1346,6 @@
       }
       return;
     }
-    sound.play('win');
     function save() {
       try {
         saveProgress();
@@ -1316,9 +1373,27 @@
         game.state.loot.opened +
         '/' +
         selected.gifts.length;
-      selected = window.FluffCourses.nextCourse(selected);
-      launchCourse({ lives: game.state.lives, lifeProgress: game.state.lifeProgress });
-      if (game.mode === 'running') toast(result);
+      const destination = window.FluffCourses.nextCourse(selected);
+      const carry = { lives: game.state.lives, lifeProgress: game.state.lifeProgress };
+      const pads = window.FluffCourses.platforms(game.course, game.state.time);
+      const portal = window.FluffCourses.finishPortal(pads.at(-1));
+      const point = game.world.project([portal.x, portal.y, portal.z]);
+      const { width, height } = game.world.view;
+      const origin = {
+        x: point ? Math.max(0.15, Math.min(0.85, point.x / width)) : 0.5,
+        y: point ? Math.max(0.15, Math.min(0.85, point.y / height)) : 0.5,
+      };
+      close();
+      sound.effect('portal');
+      window.FluffPortalTravel.play(selected, destination, origin, () => {
+        selected = destination;
+        launchCourse(carry, true);
+      }, () => {
+        if (game.mode !== 'transferring') return;
+        game.resume();
+        if (document.hidden || !document.hasFocus()) game.pause();
+        toast(selected.endless ? result + ' · ' + lifeHint(game.state) : result);
+      });
     }
     save();
   }
@@ -1345,6 +1420,7 @@
       rideStatus.hidden = !rideMessage;
     }
     updateVillagePrompt(s, pads);
+    window.FluffSkyFriends.voice(s);
     const openedGift = s.loot.opened > shownGifts;
     if (openedGift) {
       const reward = s.lastGift;
@@ -1352,9 +1428,7 @@
       if (reward.kind === 'item') {
         const [group, id] = reward.sku.split(':');
         $('gift-name').textContent = choices[group][id];
-        $('gift-detail').textContent = reward.aerial
-          ? 'Siipipaketin löytö · sovita Pehmopajassa'
-          : 'Uusi varuste Pehmopajassa';
+        $('gift-detail').textContent = 'Pue Pehmopajan Lahjat-välilehdellä';
       } else if (reward.kind === 'life') {
         $('gift-name').textContent = 'Lisäelämä!';
         $('gift-detail').textContent = 'Pehmollasi on nyt ' + lives(s.lives);
@@ -1427,15 +1501,22 @@
         $('hud-fill').style.width = ((s.furthest + 1) / count) * 100 + '%';
       }
       const next = game.course.hazards.find((h) => h.at === s.furthest + 1);
+      const nextPad = pads[s.furthest + 1 - (game.course.firstIndex || 0)];
       if (
         game.course.gifts.some((g) => g.aerial && g.at === s.furthest) &&
         !introducedHazards.has('aerial')
       ) {
         introducedHazards.add('aerial');
         toast('Siipipaketti! Hyppää sen alle ja paina hyppyä uudelleen ilmassa.');
-      } else if (next && !introducedHazards.has(next.type) && s.checkpoint !== s.furthest) {
+      } else if (
+        next && !introducedHazards.has(next.type) &&
+        (s.checkpoint !== s.furthest || window.FluffObstacles.combinations.includes(next.type))
+      ) {
         introducedHazards.add(next.type);
         toast(encounterTips[next.type]);
+      } else if (nextPad?.kind === 'gust' && !introducedHazards.has('gust')) {
+        introducedHazards.add('gust');
+        toast('Puhurilaatta! Katso tuulipussia ja ohjaa pehmoa puuskaa vastaan.');
       }
       oldStep = s.furthest;
     }
@@ -1451,7 +1532,7 @@
   function startGame() {
     launchCourse(null);
   }
-  function launchCourse(carry) {
+  function launchCourse(carry, waitForArrival = false) {
     clearTimeout(toastTimer);
     $('toast').classList.remove('shown');
     close();
@@ -1486,7 +1567,7 @@
         });
       game.world.thirdPerson = thirdPerson;
       game.world.look = profile.appearance;
-      game.start(selected, carry, profile.unlocked);
+      game.start(selected, carry, profile.unlocked, waitForArrival);
     } catch (err) {
       lobby();
       error(err.message);
@@ -1523,7 +1604,8 @@
     if (talkToVillager()) event.preventDefault();
   });
   document.addEventListener('click', (ev) => {
-    if (ev.target.closest('button') && ev.target.closest('button').id !== 'sound') sound.play('click');
+    const button = ev.target.closest('button');
+    if (button && !button.matches('#sound, #pause-sound, [data-group="ears"]')) sound.play('click');
   });
   renderLobby();
   syncSound();

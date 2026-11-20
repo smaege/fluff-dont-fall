@@ -173,8 +173,14 @@
       log.append(row);
     }
 
+    let lastVoice = -Infinity;
     function updateSpeech() {
       speech.textContent = messages.at(-1).text;
+      const now = performance.now();
+      if (now - lastVoice > 550) {
+        window.FluffSound.effect(villager.type, 0.56);
+        lastVoice = now;
+      }
       log.hidden = !log.childElementCount;
       empty.hidden = !log.hidden;
       log.scrollTop = log.scrollHeight;

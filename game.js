@@ -5,7 +5,11 @@
     step = 1 / 120;
   const maxLives = 3,
     starsPerLife = 10,
-    baseSpeed = 5.75;
+    endlessFirstLife = 20,
+    endlessLifeStep = 10,
+    baseSpeed = 5.75,
+    airAcceleration = 30,
+    airDrag = 0.55;
   function speedMultiplier(course, furthest) {
     return course.endless ? 1 + 0.25 * Math.min(1, furthest / 72) : 1;
   }
@@ -18,13 +22,16 @@
       heading: 0,
       moving: false,
       pitch: -0.18,
+      vx: 0,
       vy: 0,
+      vz: 0,
       grounded: 0,
       furthest: 0,
       checkpoint: 0,
       lastHazard: null,
       lives: maxLives,
       lifeProgress: 0,
+      lifeGoal: starsPerLife,
       surfaces: new Map(),
       stars: 0,
       lastStar: null,
@@ -44,6 +51,7 @@
       landingPower: 0,
       slideSpeed: 0,
       sliding: false,
+      encounterAudio: new window.FluffEncounterAudio(),
     };
   }
   function onPad(pad, x, z) {
@@ -166,19 +174,22 @@
     const along = Math.max(-h.halfSpan, Math.min(h.halfSpan, dx * ax + dz * az));
     return Math.hypot(dx - ax * along, dz - az * along) < h.r + 0.18;
   }
-  function addBadges(s, count) {
+  function addBadges(s, count, endless, fromGift = false) {
     s.stars += count;
+    if (endless && fromGift) return false;
     s.lifeProgress += count;
-    const gainedLives = Math.min(maxLives - s.lives, Math.floor(s.lifeProgress / starsPerLife));
-    s.lives += gainedLives;
-    s.lifeProgress %= starsPerLife;
-    return gainedLives;
+    if (s.lifeProgress < s.lifeGoal) return false;
+    s.lifeProgress -= s.lifeGoal;
+    if (endless) s.lifeGoal += endlessLifeStep;
+    if (s.lives === maxLives) return false;
+    s.lives++;
+    return true;
   }
   function drawPrize(options) {
     const index = Math.floor(Math.random() * options.length);
     return options.splice(index, 1)[0];
   }
-  function openGift(s, position) {
+  function openGift(s, position, endless) {
     const loot = s.loot;
     const items = position.aerial ? loot.aerialItems : loot.remainingItems;
     const courseItem = position.aerial ? null : loot.courseItem;
@@ -186,15 +197,19 @@
     if (courseItem) loot.courseItem = null;
     else if (position.aerial) kind = items.length ? 'item' : 'badges';
     else {
-      if (!loot.deck.length) loot.deck = ['life', 'badges', items.length ? 'item' : 'badges'];
+      if (!loot.deck.length)
+        loot.deck = endless
+          ? ['badges', 'badges', 'item']
+          : ['life', 'badges', 'badges', 'badges', 'item', 'item'];
       kind = drawPrize(loot.deck);
+      if (kind === 'item' && !items.length) kind = 'badges';
     }
     if (kind === 'life' && s.lives === maxLives) kind = 'badges';
     const reward = { ...position, kind, time: s.time };
     if (kind === 'life') s.lives++;
     else if (kind === 'badges') {
       reward.count = position.aerial ? 6 : 3 + Math.floor(Math.random() * 3);
-      reward.bonusLife = addBadges(s, reward.count) > 0;
+      reward.bonusLife = addBadges(s, reward.count, endless, true);
     } else {
       reward.sku = courseItem ?? drawPrize(items);
       loot.pendingItems.push(reward.sku);
@@ -222,6 +237,8 @@
     s.time += dt;
     s.buffer = Math.max(0, s.buffer - dt);
     if (!s.buffer) s.queuedJump = false;
+    const previousX = s.x,
+      previousZ = s.z;
     const pads = api.platforms(course, s.time);
     updateSurfaces(s, course, pads, dt);
     const ground = s.grounded === null ? null : pads[s.grounded - offset];
@@ -246,9 +263,26 @@
     const speed = baseSpeed * pace;
     let vx = (forward * sy + side * cy) * speed,
       vz = (forward * cy - side * sy) * speed;
+    if (s.grounded === null) {
+      if (forward || side) {
+        const dx = vx - s.vx,
+          dz = vz - s.vz;
+        const steer = Math.min(1, (airAcceleration * pace * dt) / (Math.hypot(dx, dz) || 1));
+        vx = s.vx + dx * steer;
+        vz = s.vz + dz * steer;
+      } else {
+        const drag = Math.exp(-airDrag * dt);
+        vx = s.vx * drag;
+        vz = s.vz * drag;
+      }
+    } else if (s.buffer > 0 && !forward && !side && ground?.kind !== 'slide') {
+      // A jump tap and direction release can arrive between the same two physics steps.
+      vx = s.vx;
+      vz = s.vz;
+    }
     const onSlide = ground?.kind === 'slide';
     const t = onSlide ? rides.progress(ground, s.z) : 1;
-    s.sliding = onSlide && t < 0.9 - 1e-6 && s.buffer <= 0;
+    s.sliding = onSlide && t < 0.9 - 1e-6;
     if (s.sliding) {
       s.slideSpeed = Math.min(10.5, Math.max(2.3, s.slideSpeed) + 6.4 * dt);
       const brake = Math.min(1, (0.9 - t) / 0.18);
@@ -263,15 +297,16 @@
       const angle = Math.atan2(vx, vz) - s.heading;
       s.heading += Math.atan2(Math.sin(angle), Math.cos(angle)) * (1 - Math.exp(-14 * dt));
     }
-    const previousX = s.x,
-      previousZ = s.z;
+    const wind = ground?.kind === 'gust' ? window.FluffGust.wind(ground, s.time) : 0;
     s.z += vz * dt;
-    s.x += vx * dt;
+    s.x += (vx + wind) * dt;
     if (s.sliding) {
       const center = rides.laneCenter(ground, s.z),
         limit = ground.w * 0.418;
       s.x = Math.max(center - limit, Math.min(center + limit, s.x));
     }
+    s.vx = vx;
+    s.vz = vz;
     const stepping = s.moving && s.grounded !== null && !s.sliding;
     s.gait += (Number(stepping) - s.gait) * (1 - Math.exp(-13 * dt));
     if (s.gait > 0.015) s.walk += dt * (8 + 3 * s.gait) * pace;
@@ -286,8 +321,10 @@
         s.coyote = 0.09;
       } else {
         s.y = api.surfaceHeight(pad, s.x, s.z);
-        if (pad.kind === 'stairs')
-          rides.touchTread(s, pad, rides.treadAt(pad, previousZ) !== rides.treadAt(pad, s.z));
+        if (pad.kind === 'stairs') {
+          const reachedTread = rides.treadAt(pad, previousZ) !== rides.treadAt(pad, s.z);
+          rides.touchTread(s, pad, reachedTread);
+        }
       }
     }
     let event = null;
@@ -303,6 +340,12 @@
       event = spin ? 'spin' : 'jump';
     }
     if (s.grounded === null) {
+      s.sliding = false;
+      if (ground) {
+        // Carry the actual launch velocity, including the cushion's motion, into the air.
+        s.vx = (s.x - previousX) / dt;
+        s.vz = (s.z - previousZ) / dt;
+      }
       const oldY = s.y;
       s.coyote = Math.max(0, s.coyote - dt);
       s.vy -= 19 * dt;
@@ -334,7 +377,6 @@
             s.y = height;
             s.vy = 0;
             s.coyote = 0.09;
-            event = 'land';
             if (!course.endless && p.index === pads.length - 1) s.finishTime ??= s.time;
             if (p.index > s.checkpoint && course.checkpoints?.includes(p.index)) {
               s.checkpoint = p.index;
@@ -346,7 +388,8 @@
       }
     }
     s.airBlend += (Number(s.grounded === null) - s.airBlend) * (1 - Math.exp(-16 * dt));
-    const hazard = api.hazards(course, pads, s.time).find((h) => touchesHazard(s, h));
+    const hazards = api.hazards(course, pads, s.time);
+    const hazard = hazards.find((h) => touchesHazard(s, h));
     if (hazard) {
       s.lastHazard = hazard.type;
       event = 'bump';
@@ -372,7 +415,7 @@
           position.y <= s.y + 1.21
         ) {
           course.stars.splice(i, 1);
-          const bonusLife = addBadges(s, 1) > 0;
+          const bonusLife = addBadges(s, 1, course.endless);
           s.lastStar = { ...position, time: s.time, bonusLife };
           break;
         }
@@ -388,11 +431,12 @@
           s.y + 1.05 > pos.y - 0.46
         ) {
           course.gifts.splice(i, 1);
-          openGift(s, pos);
+          openGift(s, pos, course.endless);
           break;
         }
       }
     }
+    if (event !== 'fall' && event !== 'win') s.encounterAudio.tick(s, pads, hazards, before, hazard);
     return event;
   }
   class Game {
@@ -401,6 +445,7 @@
       this.hooks = hooks;
       this.world = new window.FluffWorld(canvas);
       this.keys = new Set();
+      this.touchMoves = new Map();
       this.mode = 'idle';
       this.drag = null;
       this.frame = 0;
@@ -448,17 +493,22 @@
         this.hooks.error('3D-grafiikka keskeytyi. Lataa peli uudelleen jatkaaksesi.');
       });
       for (const btn of document.querySelectorAll('[data-move],#touch-jump')) {
+        const move = btn.dataset.move;
         btn.addEventListener('pointerdown', (e) => {
           if (this.mode !== 'running') return;
           e.preventDefault();
           btn.setPointerCapture(e.pointerId);
-          if (btn.dataset.move) this.keys.add(btn.dataset.move);
+          if (move) this.touchMoves.set(e.pointerId, move);
           else requestJump(this.state);
         });
-        btn.addEventListener('lostpointercapture', () => this.keys.delete(btn.dataset.move));
+        if (move) {
+          const releaseMove = (e) => this.touchMoves.delete(e.pointerId);
+          for (const event of ['pointerup', 'pointercancel', 'lostpointercapture'])
+            btn.addEventListener(event, releaseMove);
+        }
       }
     }
-    start(course, carry, owned = []) {
+    start(course, carry, owned = [], waitForArrival = false) {
       // A portal continues on the same canvas. Keep mouse capture during the handoff.
       if (this.mode !== 'transferring') this.stop();
       this.course = course.endless
@@ -475,14 +525,21 @@
         this.state.lives = Math.min(maxLives, Math.max(0, carry.lives));
       if (Number.isInteger(carry?.lifeProgress))
         this.state.lifeProgress = Math.min(starsPerLife - 1, Math.max(0, carry.lifeProgress));
-      if (course.endless) window.FluffEndless.advance(this.course, 0);
+      if (course.endless) {
+        this.state.lifeGoal = endlessFirstLife;
+        window.FluffEndless.advance(this.course, 0);
+      }
       this.world.setup(this.course);
       window.FluffSound.setCourse(course.id);
-      this.resume();
+      if (waitForArrival) {
+        this.mode = 'transferring';
+        this.draw();
+      } else this.resume();
     }
     retry() {
       if (this.mode !== 'recovering' || this.state.lives === 0) return;
-      const { checkpoint, time, finishTime, lives, stars, lifeProgress, furthest, loot } = this.state;
+      const { checkpoint, time, finishTime, lives, stars, lifeProgress, lifeGoal, furthest, loot } =
+        this.state;
       this.stop();
       const pads = api.platforms(this.course, time);
       const index = finishTime === null ? checkpoint - (this.course.firstIndex || 0) : pads.length - 1;
@@ -504,6 +561,7 @@
         lives,
         stars,
         lifeProgress,
+        lifeGoal,
         loot,
       };
       this.resume();
@@ -564,6 +622,7 @@
     release() {
       window.FluffSound.setPlaying(false);
       this.keys.clear();
+      this.touchMoves.clear();
       this.drag = null;
       this.locked = false;
       if (document.pointerLockElement === this.canvas) document.exitPointerLock();
@@ -577,6 +636,7 @@
     }
     resume() {
       this.keys.clear();
+      this.touchMoves.clear();
       this.state.buffer = 0;
       this.state.queuedJump = false;
       this.mode = 'running';
@@ -605,15 +665,18 @@
       this.acc += Math.min((now - this.previous) / 1000, 0.12);
       this.previous = now;
       let outcome = null;
+      const keys = this.touchMoves.size
+        ? new Set([...this.keys, ...this.touchMoves.values()])
+        : this.keys;
       while (this.acc >= step && !outcome) {
         this.acc -= step;
-        const event = tick(this.state, this.course, this.keys, step);
+        const event = tick(this.state, this.course, keys, step);
         if (event === 'checkpoint') {
-          window.FluffSound.play('land');
           this.hooks.checkpoint(this.state.checkpoint);
-        } else if (event === 'jump' || event === 'spin' || event === 'land')
+        } else if (event === 'jump' || event === 'spin') {
           window.FluffSound.play(event);
-        else if (event) outcome = event;
+          if (event === 'spin' && this.world.look) window.FluffSound.effect(this.world.look.ears, 0.64);
+        } else if (event) outcome = event;
       }
       const lostLife = outcome === 'fall' || outcome === 'bump';
       if (lostLife) this.state.lives = Math.max(0, this.state.lives - 1);
@@ -632,5 +695,7 @@
   window.FluffGame = Game;
   Game.maxLives = maxLives;
   Game.starsPerLife = starsPerLife;
+  Game.endlessFirstLife = endlessFirstLife;
+  Game.endlessLifeStep = endlessLifeStep;
   Game.speedMultiplier = speedMultiplier;
 })();

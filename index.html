@@ -10,9 +10,11 @@
     <meta name="description" content="Luo oma pehmo ja pompi pehmeiden esteratojen maaliin." />
     <title>Fluff, Don’t Fall!</title>
     <link rel="icon" href="assets/paw.svg" type="image/svg+xml" />
+    <link rel="preload" href="assets/lobby.webp" as="image" />
     <link rel="stylesheet" href="style.css" />
     <script defer src="plush-options.js"></script>
     <script defer src="profiles.js"></script>
+    <script defer src="sound-fx.js"></script>
     <script defer src="sound.js"></script>
     <script defer src="critters.js"></script>
     <script defer src="village.js"></script>
@@ -24,6 +26,7 @@
     <script defer src="fairground.js"></script>
     <script defer src="pad-styles.js"></script>
     <script defer src="sky-rides.js"></script>
+    <script defer src="gust.js"></script>
     <script defer src="obstacles.js"></script>
     <script defer src="courses.js"></script>
     <script defer src="endless.js"></script>
@@ -34,8 +37,10 @@
     <script defer src="plush-outfits.js"></script>
     <script defer src="plush-wings.js"></script>
     <script defer src="plush.js"></script>
+    <script defer src="encounter-audio.js"></script>
     <script defer src="game.js"></script>
     <script defer src="village-chat.js"></script>
+    <script defer src="portal-travel.js"></script>
     <script defer src="app.js"></script>
   </head>
   <body>
@@ -122,12 +127,13 @@
         <div class="course-grid" id="course-grid"></div>
       </section>
       <footer>
-        <span><i data-icon="save"></i>Edistyminen tallentuu tälle laitteelle</span
+        <span><i data-icon="save"></i>Edistyminen tallentuu tähän selaimeen</span
         ><span class="local"><b></b>Paikallinen peli</span>
       </footer>
     </main>
     <section id="play-screen" aria-label="Hyppyrata" hidden>
       <canvas id="world" tabindex="0" aria-label="Kolmiulotteinen hyppyrata"></canvas>
+      <canvas id="portal-passage" aria-hidden="true" hidden></canvas>
       <div class="hud">
         <div class="hud-level">
           <i data-icon="flag"></i>

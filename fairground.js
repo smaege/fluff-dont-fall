@@ -22,7 +22,9 @@
     const warnAt = openAt + 1.3 - 0.22 * difficulty;
     const closeAt = warnAt + 0.46;
     const period = closeAt + 0.48;
-    const elapsed = (time + pad.index * 0.619) % period;
+    const offset = pad.index * 0.619;
+    const impactAt = Math.floor((time + offset) / period) * period - offset;
+    const elapsed = time - impactAt;
     const opening = ease((elapsed - riseAt) / (openAt - riseAt));
     const closing = ease((elapsed - closeAt) / (period - closeAt));
     const bottom = pad.y - 0.015 + shutterLift * (opening - closing);
@@ -38,6 +40,8 @@
       angle: 0,
       minY: bottom,
       maxY: bottom + shutterHeight,
+      impactAt,
+      descending: elapsed >= closeAt,
       signal,
     };
   }
@@ -66,6 +70,8 @@
         angle: 0,
         minY: bottom,
         maxY: top,
+        gapX: center,
+        opening: gap,
       };
     });
   }

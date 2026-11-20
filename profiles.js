@@ -46,8 +46,7 @@
     return exclusives.includes(sku) || aerialExclusives.includes(sku) || flowerExclusives.includes(sku);
   }
 
-  function isLocked(field, appearance, unlocked) {
-    const sku = field + ':' + appearance[field];
+  function isLocked(sku, unlocked) {
     return (isPaid(sku) || isExclusive(sku)) && !unlocked.includes(sku);
   }
 
@@ -73,7 +72,9 @@
       : [];
     const appearance = appearanceWith(defaultAppearance, data.appearance);
     for (const field of lockedFields) {
-      if (isLocked(field, appearance, unlocked)) appearance[field] = defaultAppearance[field];
+      if (isLocked(field + ':' + appearance[field], unlocked)) {
+        appearance[field] = defaultAppearance[field];
+      }
     }
 
     return {
@@ -167,6 +168,8 @@
   window.FluffProfiles = {
     list,
     find,
+    isGift: isExclusive,
+    isLocked,
     open(name) {
       return update(name, () => {});
     },
@@ -174,8 +177,8 @@
       return update(name, (profile) => {
         const look = appearanceWith(profile.appearance, appearance);
         for (const field of lockedFields) {
-          if (!isLocked(field, look, profile.unlocked)) continue;
           const sku = field + ':' + look[field];
+          if (!isLocked(sku, profile.unlocked)) continue;
           if (aerialExclusives.includes(sku)) {
             throw new Error('Tämä varuste avautuu korkealta siipipaketista.');
           }

@@ -4,6 +4,7 @@
   const soundPreferenceKey = 'fluff-sound';
   const musicPreferenceKey = 'fluff-music';
   const maxVoices = 4;
+  const maxEffects = 4;
   const cues = {
     click: [[660, 0, 0.09, 0.09]],
     gift: [
@@ -31,10 +32,6 @@
       [587, 0, 0.1, 0.08],
       [784, 0.045, 0.13, 0.08],
       [988, 0.1, 0.17, 0.07],
-    ],
-    land: [
-      [294, 0, 0.11, 0.11],
-      [440, 0.015, 0.09, 0.04],
     ],
     fall: [
       [494, 0, 0.17, 0.09],
@@ -1316,6 +1313,7 @@
   let loopStart;
   let nextNote = 0;
   const musicVoices = new Set();
+  const activeEffects = new Set();
 
   try {
     soundEnabled = localStorage.getItem(soundPreferenceKey) !== 'off';
@@ -1488,17 +1486,66 @@
   }
   document.addEventListener('visibilitychange', syncMusic);
 
+  function prepareSound() {
+    if (!getContext()) return false;
+    if (context.state === 'running') return true;
+    if (!canActivateAudio()) return false;
+    resumeAudio();
+    return true;
+  }
+
+  function disconnectEffect(voice) {
+    voice.source.onended = null;
+    voice.source.disconnect();
+    voice.volume.disconnect();
+    voice.panner?.disconnect();
+    activeEffects.delete(voice);
+  }
+
+  function effect(cue, gain = 1, pan = 0) {
+    if (!soundEnabled || !Number.isFinite(gain) || gain <= 0) return;
+
+    let voice;
+    try {
+      if (!prepareSound()) return;
+      if (activeEffects.size >= maxEffects) {
+        if (cue !== 'pillowPress' && cue !== 'shutter') return;
+        // A nearby impact must land on time even while other effects are ringing out.
+        const oldest = activeEffects.values().next().value;
+        oldest.source.stop();
+        disconnectEffect(oldest);
+      }
+      const buffer = window.FluffSoundEffects?.bufferFor(context, cue);
+      if (!buffer) return;
+
+      const source = context.createBufferSource();
+      const volume = context.createGain();
+      voice = { source, volume };
+      source.buffer = buffer;
+      volume.gain.value = Math.min(1, gain);
+      source.connect(volume);
+      if (context.createStereoPanner && Number.isFinite(pan) && pan !== 0) {
+        const panner = context.createStereoPanner();
+        voice.panner = panner;
+        panner.pan.value = Math.max(-1, Math.min(1, pan));
+        volume.connect(panner);
+        panner.connect(output);
+      } else {
+        volume.connect(output);
+      }
+      source.onended = () => disconnectEffect(voice);
+      source.start(context.currentTime + 0.005);
+      activeEffects.add(voice);
+    } catch {
+      if (voice) disconnectEffect(voice);
+    }
+  }
+
   function play(cue) {
     if (!soundEnabled || !Object.hasOwn(cues, cue) || activeVoices >= maxVoices) return;
 
     try {
-      if (!getContext()) return;
-
-      if (context.state !== 'running') {
-        if (navigator.userActivation && !navigator.userActivation.isActive) return;
-        resumeAudio();
-      }
-
+      if (!prepareSound()) return;
       const startTime = context.currentTime + 0.005;
       for (const [frequency, offset, duration, volume, endFrequency] of cues[cue]) {
         const note = context.createOscillator();
@@ -1539,6 +1586,12 @@
         // Keep the preference for the current page.
       }
       if (output) output.gain.value = soundEnabled ? 0.6 : 0;
+      if (!soundEnabled) {
+        for (const voice of activeEffects) {
+          voice.source.stop();
+          disconnectEffect(voice);
+        }
+      }
       return soundEnabled;
     },
     musicEnabled: () => musicEnabled,
@@ -1564,5 +1617,6 @@
       syncMusic();
     },
     play,
+    effect,
   };
 })();

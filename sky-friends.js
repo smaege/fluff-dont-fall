@@ -396,9 +396,25 @@
 
     const line = lineAt(encounter, time);
     const point = line && candidate.points[line.who];
-    if (inView(point, view)) showLine(view, point, candidate.speakers[line.who], line.words);
-    else hide();
+    if (inView(point, view)) {
+      encounter.speaker = candidate.speakers[line.who];
+      showLine(view, point, encounter.speaker, line.words);
+    } else hide();
   }
 
-  window.FluffSkyFriends = { draw, hide };
+  function voice(state) {
+    if (encounter?.state !== state || encounter.kind !== 'animal' || !bubble || bubble.body.hidden)
+      return;
+    const words = bubble.words.textContent;
+    if (encounter.heard === words) return;
+    const speaker = encounter.speaker;
+    const dx = speaker.x - state.x, dz = speaker.z - state.z;
+    const distance = Math.hypot(dx, speaker.y - state.y - 0.65, dz);
+    if (distance >= 10) return;
+    encounter.heard = words;
+    const pan = (dx * Math.cos(state.yaw) - dz * Math.sin(state.yaw)) / Math.max(1, distance);
+    window.FluffSound.effect(speaker.type, 0.37 * (1 - distance / 12), pan * 0.6);
+  }
+
+  window.FluffSkyFriends = { draw, hide, voice };
 })();

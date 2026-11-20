@@ -68,6 +68,8 @@
     uniform sampler2D fleece, shortPile, knitLoops;
     uniform vec3 color,fog,clothTint,camera; uniform vec2 studioFeet; uniform float material,garment,pileLength;
     uniform float sceneTime;
+    uniform vec2 portalMotion;
+    uniform vec3 portalAccent;
     float hash(vec2 p){return fract(sin(dot(p,vec2(41.71,289.33)))*4375.76);}
     void main(){
       ${window.FluffPetalRain.fragment}
@@ -91,23 +93,35 @@
         gl_FragColor=vec4(sky,1.);
         return;
       }
-      if(material== -17.){
-        vec2 p=vLocal.xy*2.;
-        float r=length(p), a=atan(p.y,p.x+.0001);
-        float flow=a*2.+r*6.2-sceneTime*.82;
-        vec3 ink=mix(vec3(.20,.16,.41),color,.40+.18*p.y);
-        vec3 silk=mix(vec3(.62,.88,.97),color,.38);
-        float ribbon=.5+.5*cos(flow+.55*sin(3.*a+sceneTime*.33));
-        vec3 glow=mix(ink,silk,.14+.58*pow(ribbon,3.)*smoothstep(.06,.76,r));
-        glow+=vec3(.96,.75,.49)*(.23*exp(-8.*r)+.32*smoothstep(.83,.98,r));
-        vec2 cell=p*3.3;
-        vec2 tile=floor(cell);
-        vec2 q=abs(fract(cell)-.24-.5*vec2(hash(tile),hash(tile+8.1)));
-        float sparkle=1.-smoothstep(.04,.14,sqrt(q.x)+sqrt(q.y));
-        float glint=(1.-smoothstep(.02,.12,q.x+q.y))+
-          (1.-smoothstep(.03,.13,min(q.x*5.+q.y,q.y*5.+q.x)));
-        glow+=vec3(1.,.91,.76)*(.45+.18*cos(sceneTime*1.5+12.*hash(tile)))*(sparkle+glint*.6);
-        gl_FragColor=vec4(mix(glow,fog,min(.65,max(vDepth-7.,0.)*.009)),1.);
+      if(material== -17. || material== -22.){
+        vec2 p=vLocal.xy;
+        float r=length(p), a=atan(p.y,p.x+.00001);
+        float t=portalMotion.x, wake=portalMotion.y;
+        vec3 silk=mix(portalAccent,vec3(1.,.96,.84),.58);
+        float haze=min(.7,max(vDepth-8.,0.)*.017);
+        if(material== -22.){
+          float halo=exp(-111.*pow(abs(r-1.05),2.))*(1.-smoothstep(1.14,1.32,r));
+          float light=.66+.34*cos(3.*a-t*.85);
+          float alpha=halo*light*(.12+.10*wake)*(1.-haze);
+          gl_FragColor=vec4(mix(color,silk,.42)*alpha,alpha);
+          return;
+        }
+        // The wisps taper inward around the open sightline. The mesh curves away from the rim.
+        float turn=3.*a-12.*r+.95*t+.6*sin(5.*r+a);
+        float crossing=2.*a+13.*r-.65*t;
+        float strand=pow(.5+.5*cos(turn),9.);
+        float filament=pow(.5+.5*cos(turn+.24),62.);
+        float lattice=pow(.5+.5*cos(crossing),14.)*
+                      (.28+.72*smoothstep(-.55,.68,cos(turn-a)));
+        float stitches=smoothstep(-.08,.64,cos(a*37.+r*29.-t*.73));
+        float edge=exp(-34.*pow(abs(r-.91),2.));
+        float aperture=smoothstep(.19,.72,r)*(1.-smoothstep(.94,1.,r));
+        float mist=edge*(.14+.14*wake)*(.75+.25*cos(2.*a-4.*r-t*.4));
+        float thread=aperture*(.66*strand+.43*lattice)*(.48+.52*stitches);
+        float sheen=aperture*filament*(.17+.20*wake);
+        vec3 dye=mix(color*.69,silk,smoothstep(.055,.53,thread+sheen*1.25));
+        float alpha=clamp((mist+sheen+thread*(.53+.24*wake))*(1.-haze),0.,.86);
+        gl_FragColor=vec4(mix(dye,fog,haze*.45)*alpha,alpha);
         return;
       }
       vec3 n=normalize(vNormal);
@@ -117,6 +131,28 @@
       bool plush=body||mantle||material== -1.||residentFace;
       vec3 sun=normalize(vec3(-.58,.76,-.32));
       float incidence=dot(n,sun);
+      if(material== -21.){
+        float a=atan(vLocal.y,vLocal.x+.00001), r=length(vLocal.xy);
+        float t=portalMotion.x, wake=portalMotion.y;
+        float weave=texture2D(knitLoops,vec2(a*6.04789,vLocal.z*7.5)).r;
+        float nap=texture2D(shortPile,vLocal.xy*2.5).r;
+        float lining=1.-smoothstep(.467,.539,r);
+        float ridge=smoothstep(.14,.95,abs(n.z));
+        vec3 velvet=mix(color*.66,color,lining*.8+.14*ridge);
+        velvet*=.88+.18*weave+.08*nap;
+        velvet*=.76+.33*smoothstep(-.88,.95,incidence);
+        float band=.508+.016*cos(12.*a);
+        float braid=1.-smoothstep(.003,.010,abs(r-band));
+        float second=1.-smoothstep(.0025,.008,abs(r-band-.017));
+        float stitch=smoothstep(-.25,.32,cos(84.*a+vLocal.z*8.));
+        float current=pow(.5+.5*cos(4.*a-t*1.15),4.);
+        vec3 thread=mix(portalAccent,vec3(1.,.92,.70),.54);
+        float embroidery=max(braid*.86,second*(.28+.58*stitch))*ridge;
+        vec3 woven=mix(velvet,thread*(.85+.15*stitch),embroidery);
+        woven+=thread*(.13+.18*wake)*current*(lining+embroidery);
+        gl_FragColor=vec4(mix(woven,fog,min(.87,max(vDepth-7.,0.)*.012)),1.);
+        return;
+      }
       if(material== -19.){
         vec3 eye=normalize(camera-vPos);
         float rim=pow(1.-abs(dot(n,eye)),2.);
@@ -821,6 +857,49 @@
     }
     return out;
   }
+  function portalFrame() {
+    const out = [];
+    const point = (i, j) => {
+      const a = (i * tau) / 96,
+        b = (j * tau) / 16;
+      const fold = Math.cos(12 * a);
+      const center = 0.559 + 0.008 * fold;
+      const width = 0.069 + 0.008 * fold;
+      const radius = center + width * Math.cos(b);
+      const c = Math.cos(a),
+        s = Math.sin(a);
+      return [
+        c * radius, s * radius, 0.5 * Math.sin(b),
+        c * Math.cos(b), s * Math.cos(b), 2 * width * Math.sin(b),
+      ];
+    };
+    for (let i = 0; i < 96; i++)
+      for (let j = 0; j < 16; j++) {
+        const a = point(i, j),
+          b = point(i + 1, j),
+          c = point(i + 1, j + 1),
+          d = point(i, j + 1);
+        out.push(...a, ...b, ...c, ...a, ...c, ...d);
+      }
+    return out;
+  }
+  function portalVeil() {
+    const out = [];
+    const point = (a, r) => [Math.cos(a) * r, Math.sin(a) * r, Math.max(0, 1.04 - r) ** 2];
+    // Concentric bands model the curved silk, so it has parallax even from the side.
+    const bands = [0, 0.22, 0.42, 0.62, 0.82, 1.04, 1.32];
+    for (let i = 0; i < 72; i++) {
+      const a = (i * tau) / 72;
+      const b = ((i + 1) * tau) / 72;
+      for (let j = 0; j < bands.length - 1; j++) {
+        const r = bands[j],
+          next = bands[j + 1];
+        if (r) flatTriangle(out, point(a, r), point(a, next), point(b, r));
+        flatTriangle(out, point(b, r), point(a, next), point(b, next));
+      }
+    }
+    return out;
+  }
   function arch() {
     const out = [];
     const point = (i, j) => {
@@ -1381,8 +1460,25 @@
     }
     return objects;
   }
-  // Shorten the camera arm if a cushion would sit between the lens and the toy.
-  function followDistance(anchor, forward, pads, time) {
+  function cameraBoxEntry(anchor, forward, distance, low, high) {
+    let enter = 0,
+      exit = distance;
+    for (let axis = 0; axis < 3; axis++) {
+      const dir = -forward[axis],
+        origin = anchor[axis];
+      if (Math.abs(dir) < 0.00001) {
+        if (origin < low[axis] || origin > high[axis]) return Infinity;
+        continue;
+      }
+      const a = (low[axis] - origin) / dir,
+        b = (high[axis] - origin) / dir;
+      enter = Math.max(enter, Math.min(a, b));
+      exit = Math.min(exit, Math.max(a, b));
+    }
+    return enter <= exit ? enter : Infinity;
+  }
+  // Shorten the camera arm if a cushion or padded wall would sit in front of the lens.
+  function followDistance(anchor, forward, pads, hazards, time) {
     let distance = 4.45;
     for (const p of pads) {
       if (p.gone) continue;
@@ -1408,21 +1504,19 @@
       if (anchor[1] > p.y + rise + 0.16) continue; // The camera arm always rises from the anchor.
       const low = [p.x - p.w / 2 - 0.13, p.y - rise - 0.97, p.z - p.d / 2 - 0.13];
       const high = [p.x + p.w / 2 + 0.13, p.y + rise + 0.13, p.z + p.d / 2 + 0.13];
-      let enter = 0,
-        exit = distance;
-      for (let axis = 0; axis < 3; axis++) {
-        const dir = -forward[axis],
-          origin = anchor[axis];
-        if (Math.abs(dir) < 0.00001) {
-          if (origin < low[axis] || origin > high[axis]) exit = -1;
-          continue;
-        }
-        const a = (low[axis] - origin) / dir,
-          b = (high[axis] - origin) / dir;
-        enter = Math.max(enter, Math.min(a, b));
-        exit = Math.min(exit, Math.max(a, b));
-      }
-      if (enter <= exit) distance = Math.min(distance, Math.max(0.48, enter - 0.09));
+      const entry = cameraBoxEntry(anchor, forward, distance, low, high);
+      distance = Math.min(distance, Math.max(0.48, entry - 0.09));
+    }
+    for (const h of hazards) {
+      if (h.type !== 'zipperGate' && h.type !== 'pillowPress') continue;
+      const halfDepth = h.depth / 2 + 0.13;
+      if (Math.abs(anchor[2] - h.z) > halfDepth + distance) continue;
+      const halfWidth = h.width / 2 + 0.10;
+      const low = [h.x - halfWidth, h.minY - 0.08, h.z - halfDepth];
+      const high = [h.x + halfWidth, h.maxY + 0.08, h.z + halfDepth];
+      const entry = cameraBoxEntry(anchor, forward, distance, low, high);
+      // Keep the near plane clear even when the wall has just moved across the opening.
+      distance = Math.min(distance, Math.max(0.24, entry - 0.08));
     }
     return distance;
   }
@@ -1443,8 +1537,11 @@
         cylinder: cylinder(),
         star: star(),
         'pickup-ring': pickupRing(),
+        'portal-frame': portalFrame(),
+        'portal-veil': portalVeil(),
         badge: badgeMesh(),
         ...window.FluffFairground.confettiMeshes(),
+        ...window.FluffGust.meshes(),
         slide: window.FluffSkyRides.slideMesh(),
         arch: arch(),
         ...window.FluffSkyBalloons.meshes(),
@@ -1513,6 +1610,8 @@
         'pileLength',
         'studioFeet',
         'sceneTime',
+        'portalMotion',
+        'portalAccent',
       ])
         this.u[name] = gl.getUniformLocation(program, name);
       gl.uniformMatrix3fv(this.u.modelBasis, false, identity);
@@ -1618,25 +1717,51 @@
       }
       this.draw(mesh, p, size, color, 0, material);
     }
-    drawPortal(pad) {
-      const { x, y, z, radiusX, radiusY } = window.FluffCourses.finishPortal(pad);
-      this.draw('ball', [x, y, z], [2 * radiusX, 2 * radiusY, 0.11], this.destination.sky[0], 0, -17);
-      for (const angle of [0, Math.PI]) {
-        this.draw('arch', [x, y, z], [radiusX * 2.25, radiusY * 2.25, 3.9], '#9973b3', angle);
-        this.draw('arch', [x, y, z - 0.12], [radiusX * 2.15, radiusY * 2.15, 2.7], '#f2c781', angle);
-      }
-      // Stitches follow the velvet piping around the doorway.
-      for (let i = 0; i < 20; i++) {
-        const a = ((i + 0.5) * tau) / 20;
+    drawPortal(gate, state) {
+      const { x, y, z, radiusX, radiusY } = gate;
+      const { gl, u, destination } = this;
+      const distance = Math.hypot(state.x - x, state.y + 0.65 - y, state.z - z);
+      const near = clamp(1 - (distance - 0.75) / 7, 0, 1);
+      const wake = near * near * (3 - 2 * near);
+      const reduced = this.reducedMotion?.matches;
+      const time = reduced ? 0 : state.time;
+      gl.uniform2f(u.portalMotion, time, wake);
+      gl.uniform3fv(u.portalAccent, rgb(destination.sky[1]));
+      this.draw('portal-frame', [x, y, z], [2 * radiusX, 2 * radiusY, 0.54], destination.side, 0, -21);
+      for (const side of [-1, 1])
+        this.draw('star', [x, y + 1.20 * radiusY, z + side * 0.22], [0.39, 0.39, 0.31], '#ffe7a8');
+      if (distance > 26) return;
+      // Little knots follow the outward curves on both faces of the opening.
+      const count = reduced ? 4 : 10;
+      for (let i = 0; i < count; i++) {
+        const seed = i * 2.39996;
+        const a = seed + time * (i % 2 ? -0.24 : 0.34);
+        const r = 1.10 + 0.17 * Math.cos(seed * 3 + time * 0.79);
+        const rise = y + r * radiusY * Math.sin(a);
+        if (rise < y - radiusY * 0.75) continue;
+        const depth = 0.57 * Math.sin(seed * 2 + time * 0.66);
+        const shimmer = (0.52 + 0.48 * wake) * (0.76 + 0.24 * Math.cos(seed + time * 1.8));
+        const size = (i % 3 ? 0.11 : 0.18) * shimmer;
         this.draw(
-          'ball',
-          [x + 0.97 * radiusX * Math.cos(a), y + 0.97 * radiusY * Math.sin(a), z - 0.25],
-          [0.12, 0.041, 0.034],
-          '#fff2c8',
-          a + Math.PI / 2,
+          i % 3 ? 'ball' : 'star',
+          [x + r * radiusX * Math.cos(a), rise, z + depth],
+          [size, size, size],
+          i % 2 ? destination.sky[2] : '#fff0c4',
+          a * 0.5,
         );
       }
-      this.draw('star', [x, y + radiusY, z - 0.18], [0.48, 0.48, 0.25], '#ffe49f');
+    }
+    drawPortalSilk({ x, y, z, radiusX, radiusY }) {
+      const { gl, destination } = this;
+      // Draw back to front from either side, testing the course and plush depth but writing none.
+      const side = this.view.camera[2] < z ? 1 : -1;
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      this.draw('portal-veil', [x, y, z + side * 0.39], [radiusX, radiusY, side * 0.64], destination.sky[0], 0, -17);
+      this.draw('portal-veil', [x, y, z - side * 0.25], [radiusX * 1.1, radiusY * 1.1, 1], destination.side, 0, -22);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
     }
     setPadPlane(pad) {
       const x = pad?.slopeX || 0,
@@ -1967,7 +2092,7 @@
         this.cameraY =
           this.cameraY === null ? y : this.cameraY + (y - this.cameraY) * (1 - Math.exp(-12 * elapsed));
         const anchor = [x + 0.5 * sy, clamp(this.cameraY, y - 0.45, y + 0.45) + 1.58, z + 0.5 * cy];
-        const arm = followDistance(anchor, forward, pads, time);
+        const arm = followDistance(anchor, forward, pads, hazards, time);
         camera = anchor.map((v, i) => v - arm * forward[i]);
       } else this.cameraY = null;
       this.view = { camera, right, up, forward, width, height, focalX, focalY };
@@ -1987,6 +2112,7 @@
       }
       this.drawSky(camera, yaw, w / h, time);
       window.FluffSkyCharms.draw(this, pads, state, camera, forward, right, up, w / h);
+      let portal;
       for (const pad of pads) {
         const { x: px, y: py, z: pz, w: pw, d: pd, index: i, kind } = pad,
           finish = !course.endless && i === pads.length - 1,
@@ -2038,7 +2164,9 @@
             [pw * 1.013, 0.16, pd * 1.013],
             kind === 'tilt' ? '#edb87d' : i % 2 ? '#f1d4c5' : '#f8e6cd',
           );
-          const fabric = kind === 'tilt' ? '#7cb4ba' : course.fabric[i % course.fabric.length];
+          const fabric = kind === 'tilt' ? '#7cb4ba'
+            : kind === 'gust' ? '#9ddbd6'
+            : course.fabric[i % course.fabric.length];
           this.draw(
             'box',
             [px, py - 0.155, pz],
@@ -2049,6 +2177,7 @@
           );
         }
         this.setPadPlane(null);
+        if (kind === 'gust' && Math.hypot(px - x, pz - z) < 45) window.FluffGust.draw(this, pad, time);
         if (checkpoint) {
           const flagX = px - pw * 0.39,
             flagColor = state.checkpoint >= i ? '#ffd869' : '#49a994',
@@ -2073,8 +2202,9 @@
             );
           }
           this.setPadPlane(null);
-        } else if (finish) {
-          this.drawPortal(pad);
+        } else if (finish && this.destination) {
+          portal = window.FluffCourses.finishPortal(pad);
+          this.drawPortal(portal, state);
         }
       }
       const hazardColor = course.id === 'night' ? '#b982c2' : '#e27895';
@@ -2170,6 +2300,7 @@
       if (!focus) window.FluffSkyFriends.draw(this, pads, state, camera, forward, right, up, w / h);
       if (!focus && this.look && this.thirdPerson) this.character(state);
       this.cloudRenderer.draw(this, this.clouds, camera, right, up, forward, w / h);
+      if (portal) this.drawPortalSilk(portal);
       if (!focus) {
         window.FluffPetalRain.draw(this);
         this.drawPickupBursts(state);
