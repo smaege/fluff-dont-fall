@@ -252,6 +252,9 @@
       gl.disableVertexAttribArray(world.pos);
       gl.enableVertexAttribArray(0);
       gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
+      gl.activeTexture(gl.TEXTURE0);
       gl.uniform1i(u.volume, 1);
       gl.uniform3fv(u.eye, camera);
       gl.uniform3fv(u.rightDir, right);

@@ -50,6 +50,16 @@ test('two thumbs can steer, look and jump in both phone orientations', async (t)
   await page.locator('#lobby-profile-list button').tap();
   await page.locator('[data-course="cloud"]').tap();
   await page.locator('#launch').tap();
+  const graphics = await page.evaluate(() => {
+    const { gl, batches } = window.testGame.world;
+    return {
+      error: gl.getError(),
+      webgl2: gl.getParameter(gl.VERSION).startsWith('WebGL 2'),
+      groupsDrawn: batches?.renderer.info.render.calls ?? 0,
+    };
+  });
+  assert.equal(graphics.error, 0);
+  if (graphics.webgl2) assert.ok(graphics.groupsDrawn >= 4);
   const gesture = await page.context().newCDPSession(page);
   const point = (id, x, y) => ({ id, x, y });
   const send = (type, ...touchPoints) => gesture.send('Input.dispatchTouchEvent', { type, touchPoints });

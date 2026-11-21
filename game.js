@@ -471,7 +471,7 @@
     constructor(canvas, hooks) {
       this.canvas = canvas;
       this.hooks = hooks;
-      this.world = new window.FluffWorld(canvas);
+      this.world = new window.FluffWorld(canvas, { tryThree: true });
       this.keys = new Set();
       this.mode = 'idle';
       this.drag = null;

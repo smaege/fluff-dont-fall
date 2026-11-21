@@ -64,9 +64,22 @@
     }`;
   const fragment = `
     precision highp float;
+    #ifdef FLUFF_INSTANCED
+      #define varying in
+      #define texture2D texture
+      out vec4 batchFragment;
+      #define gl_FragColor batchFragment
+      flat in vec3 batchColor;
+      flat in float batchMaterial;
+      #define color batchColor
+      #define material batchMaterial
+    #else
+      uniform vec3 color;
+      uniform float material;
+    #endif
     varying vec3 vNormal,vPos,vLocal,vFabric,vGrainNormal; varying float vDepth;
     uniform sampler2D fleece, shortPile, knitLoops;
-    uniform vec3 color,fog,clothTint,camera; uniform vec2 studioFeet; uniform float material,garment,pileLength;
+    uniform vec3 fog,clothTint,camera; uniform vec2 studioFeet; uniform float garment,pileLength;
     uniform float sceneTime;
     uniform vec2 portalMotion;
     uniform vec3 portalAccent;
@@ -334,20 +347,36 @@
         if(mantle && (clothCover>.48 || (garment>2.5 && p.y<-.38))) discard;
         if(material==3.4 && (clothCover<.48 || panel.z<-.14)) discard;
       }
-      if(material>.5&&material<1.5){
-        float edge=max(abs(vLocal.x),abs(vLocal.z));
-        float stitch=1.-smoothstep(.004,.013,abs(edge-.437));
-        float along=abs(vLocal.x)>abs(vLocal.z)?vLocal.z:vLocal.x;
-        col=mix(col,col*.75,stitch*.38*max(n.y,0.));
-        col=mix(col,vec3(1.,.97,.89),stitch*smoothstep(-.2,.3,sin(along*130.))*max(n.y,0.)*.8);
+      bool stitchedPanel=material>.5&&material<1.5;
+      bool diagonalStripe=material>1.5&&material<2.5;
+      bool boundRoll=material>5.5&&material<6.5;
+      float fabricDetail=1.-smoothstep(14.,43.,vDepth);
+      if(stitchedPanel){
+        // The facing panel is bordered on the sides as well as on top.
+        vec3 p=abs(vLocal);
+        float along=min(p.x,min(p.y,p.z));
+        float edge=max(min(p.x,p.y),max(min(p.x,p.z),min(p.y,p.z)));
+        float inset=1.-smoothstep(.016,.045,abs(edge-.419));
+        float stitch=1.-smoothstep(.006,.019,abs(edge-.437));
+        float cord=smoothstep(-.12,.46,cos(along*145.));
+        col*=1.-.14*inset;
+        vec3 thread=mix(color,vec3(1.,.95,.81),.71)*light;
+        col=mix(col,thread,stitch*(.14+.51*cord*fabricDetail));
       }
-      if(material>1.5&&material<2.5){
-        float stripe=sin(vLocal.y*21.+vLocal.x*9.);
-        col=mix(col,vec3(1.,.91,.84)*light,smoothstep(-.08,.08,stripe)*.85);
+      if(diagonalStripe){
+        float wave=sin(vLocal.y*21.+vLocal.x*9.);
+        float stripe=smoothstep(-.08,.08,wave);
+        float binding=1.-smoothstep(.08,.27,abs(wave));
+        col=mix(col,vec3(1.,.91,.84)*light,stripe*.85);
+        col*=1.-.10*binding*fabricDetail;
       }
-      if(material>5.5&&material<6.5){
-        float stripe=smoothstep(-.12,.12,cos(vLocal.x*69.115));
-        col=mix(col,vec3(1.,.88,.68)*light,stripe*.93);
+      if(boundRoll){
+        float wave=cos(vLocal.x*69.115);
+        float stripe=smoothstep(-.12,.12,wave);
+        float binding=1.-smoothstep(.12,.34,abs(wave));
+        vec3 tape=vec3(1.,.88,.68)*light;
+        col=mix(col,tape,stripe*.93);
+        col*=1.-.12*binding*fabricDetail;
       }
       if(material>8.5&&material<9.5){
         float t=vLocal.z+.5;
@@ -378,22 +407,26 @@
         col=mix(col,color*.67,(1.-smoothstep(.067,.079,spot))*visible);
         col=mix(col,button*light,(1.-smoothstep(.052,.063,spot))*visible);
       }
-      vec3 weights=pow(abs(n),vec3(4.));weights/=max(.01,weights.x+weights.y+weights.z);
       float nap=.5;
       if(plush){
-        // Sample in fabric space so the nap and its direction rotate with each panel.
+        // Fabric-space fibres turn with the character and stay attached during animation.
         vec3 grain=pow(abs(normalize(vGrainNormal)),vec3(4.));
         grain/=max(.001,grain.x+grain.y+grain.z);
         vec3 p=vFabric*1.38;
         vec2 fibre=texture2D(shortPile,p.zy).rg*grain.x
                   +texture2D(shortPile,p.xz).rg*grain.y
                   +texture2D(shortPile,p.xy).rg*grain.z;
-        float facing=abs(dot(n,normalize(camera-vPos)));
+        vec3 eyeDir=normalize(camera-vPos);
+        float viewIncidence=dot(n,eyeDir);
+        float facing=min(1.,abs(viewIncidence));
         if(pileLength>0. && (clothCover>.4 || facing>.31 || fibre.x<.47+.39*facing)) discard;
-        float pile=(fibre.x-.5)*.30+(fibre.y-.5)*.09;
+        float alongNap=eyeDir.y-n.y*viewIncidence;
+        float napSheen=smoothstep(-.32,.57,alongNap+(fibre.y-.5)*.62);
+        float pile=(fibre.x-.5)*mix(.34,.57,napSheen)+(fibre.y-.5)*.13;
         col*=1.+pile*mix(1.,.29,clothCover);
-        float velvet=pow(1.-min(1.,facing),2.9)*(.54+.46*smoothstep(-.8,.8,incidence));
-        col+=mix(color,vec3(1.,.91,.89),.65)*velvet*(.16+.11*fibre.x)*(1.-.64*clothCover);
+        float velvet=pow(1.-facing,2.6)*(.55+.45*smoothstep(-.8,.8,incidence));
+        float fibreGlow=velvet*(.115+.16*fibre.x)+napSheen*(.026+.085*velvet);
+        col+=mix(color,vec3(1.,.91,.89),.65)*fibreGlow*(1.-.64*clothCover);
         if(residentFace){
           // Embroider the villagers' features directly on their rounded heads.
           vec2 uv=vLocal.xy;
@@ -449,7 +482,21 @@
       }else if(material>9.7 && material<9.8){
         float satin=texture2D(shortPile,vFabric.xy*2.).b;
         col=color*(.86+.15*light)+mix(color,vec3(.94,.85,.91),.32)*(.018+.059*satin);
+      }else if(stitchedPanel||diagonalStripe||boundRoll){
+        // A tight, mipmapped weave carries through the dyed sections and wrapped bands.
+        vec3 axis=abs(normalize(vGrainNormal));
+        vec3 weights=axis*axis;
+        weights*=weights;
+        weights/=max(.001,weights.x+weights.y+weights.z);
+        vec3 p=vFabric*.77;
+        vec3 weave=texture2D(shortPile,p.zy).rgb*weights.x
+                  +texture2D(shortPile,p.xz).rgb*weights.y
+                  +texture2D(shortPile,p.xy).rgb*weights.z;
+        col*=1.+(weave.r-.5)*.23+(weave.g-.5)*.11+(weave.b-.5)*.12;
+        float grazing=1.-min(1.,abs(dot(n,normalize(camera-vPos))));
+        col+=mix(color,vec3(1.,.91,.81),.55)*(.06*grazing*grazing)*(.65+.7*weave.b);
       }else{
+        vec3 weights=pow(abs(n),vec3(4.));weights/=max(.01,weights.x+weights.y+weights.z);
         nap=dot(weights,vec3(texture2D(fleece,vFabric.zy*1.65).r,texture2D(fleece,vFabric.xz*1.65).r,texture2D(fleece,vFabric.xy*1.65).r));
         col*=.81+nap*.38;
         col+=.03*pow(1.-abs(dot(n,normalize(vec3(-.3,.5,-.7)))),4.);
@@ -943,7 +990,9 @@
       }
     return out;
   }
-  function makeFleece(gl) {
+  let fleeceTile;
+  function makeFleeceTile() {
+    if (fleeceTile) return fleeceTile;
     const tile = document.createElement('canvas');
     tile.width = tile.height = 256;
     const ctx = tile.getContext('2d');
@@ -968,11 +1017,8 @@
           ctx.stroke();
         }
     }
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tile);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.generateMipmap(gl.TEXTURE_2D);
+    fleeceTile = tile;
+    return tile;
   }
   // R holds the individual fibres, G the broader nap and B a satin embroidery weave.
   // Canvas is shared between the workshop, portrait previews and the course WebGL context.
@@ -1592,13 +1638,16 @@
     return sharedMeshes;
   }
   class World {
-    constructor(canvas) {
+    constructor(canvas, { tryThree = false } = {}) {
       this.canvas = canvas;
-      const gl = canvas.getContext('webgl', {
+      const options = {
         alpha: true,
         antialias: true,
         powerPreference: 'high-performance',
-      });
+      };
+      const compareRaw = new URLSearchParams(window.location.search).get('renderer') === 'webgl';
+      const gl2 = tryThree && !compareRaw && window.FluffThree && canvas.getContext('webgl2', options);
+      const gl = gl2 || canvas.getContext('webgl', options);
       if (!gl)
         throw new Error(
           '3D-näkymä tarvitsee WebGL-tuen. Avaa peli tämän koneen Chromessa, Firefoxissa tai Safarissa ja ota grafiikkakiihdytys käyttöön.',
@@ -1653,22 +1702,28 @@
       gl.enableVertexAttribArray(this.normal);
       this.meshes = {};
       this.uploadMeshes(meshTemplates());
-      makeFleece(gl);
-      for (const [unit, sampler, pixels] of [
-        [2, 'shortPile', makePileTile()],
-        [3, 'knitLoops', window.FluffOutfits.knitTile()],
+      const tiles = {
+        fleece: makeFleeceTile(), shortPile: makePileTile(), knitLoops: window.FluffOutfits.knitTile(),
+      };
+      this.textures = [];
+      for (const [unit, sampler] of [
+        [0, 'fleece'],
+        [2, 'shortPile'],
+        [3, 'knitLoops'],
       ]) {
+        const texture = gl.createTexture();
         gl.activeTexture(gl.TEXTURE0 + unit);
-        gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tiles[sampler]);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
         gl.generateMipmap(gl.TEXTURE_2D);
         gl.uniform1i(gl.getUniformLocation(program, sampler), unit);
+        this.textures.push([unit, texture]);
       }
-      gl.activeTexture(gl.TEXTURE0);
-      gl.enable(gl.DEPTH_TEST);
-      gl.clearColor(0, 0, 0, 0);
+      if (gl2) this.batches = new window.FluffThreeBatches(canvas, gl, fragment, tiles);
+      this.restoreRawState();
       this.colors = new Map();
+      this.padPlane = flatPlane;
       this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     }
     uploadMeshes(templates) {
@@ -1677,8 +1732,28 @@
         const buffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
         gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-        this.meshes[name] = { buffer, count: vertices.length / 6 };
+        this.meshes[name] = { buffer, count: vertices.length / 6, vertices };
       }
+    }
+    restoreRawState() {
+      // Three.js renders to the same color and depth buffers. Rebind the custom passes' resources.
+      const gl = this.gl;
+      gl.bindVertexArray?.(null);
+      gl.useProgram(this.program);
+      gl.enableVertexAttribArray(this.pos);
+      gl.enableVertexAttribArray(this.normal);
+      gl.disable(gl.BLEND);
+      gl.disable(gl.CULL_FACE);
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthMask(true);
+      gl.depthFunc(gl.LESS);
+      gl.clearColor(0, 0, 0, 0);
+      for (const [unit, texture] of this.textures) {
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+      }
+      gl.activeTexture(gl.TEXTURE0);
+      this.lastMesh = null;
     }
     setup(course) {
       this.course = course;
@@ -1743,6 +1818,12 @@
         gl.drawArrays(gl.TRIANGLES, 0, m.count);
         gl.uniform1f(u.pileLength, 0);
       }
+    }
+    drawOpaque(mesh, p, s, color, rot = 0, mat = 0) {
+      if (this.batches) {
+        if (!this.colors.has(color)) this.colors.set(color, rgb(color));
+        this.batches.add(mesh, this.meshes[mesh].vertices, p, s, this.colors.get(color), rot, mat, this.padPlane);
+      } else this.draw(mesh, p, s, color, rot, mat);
     }
     drawDetail(vertices, p, color, material, size = unitSize) {
       const gl = this.gl;
@@ -1812,7 +1893,8 @@
       const x = pad?.slopeX || 0,
         z = pad?.slopeZ || 0;
       // Apply the same height at every horizontal point, without shortening the board.
-      this.gl.uniform3fv(this.u.padPlane, x || z ? [x, z, -x * pad.x - z * pad.z] : flatPlane);
+      this.padPlane = x || z ? [x, z, -x * pad.x - z * pad.z] : flatPlane;
+      this.gl.uniform3fv(this.u.padPlane, this.padPlane);
     }
     drawPadShadow(pad, x, z, size, color) {
       if (pad.kind === 'stairs' || pad.kind === 'slide') {
@@ -1896,7 +1978,7 @@
             variant: Math.abs(Math.floor(o.p[0] * 3 + o.p[2])) % 4,
             depth,
           });
-        } else this.draw(o.mesh, [o.p[0], o.p[1], z], o.s, o.c, o.rot, o.mat);
+        } else this.drawOpaque(o.mesh, [o.p[0], o.p[1], z], o.s, o.c, o.rot, o.mat);
       }
     }
     drawSky(camera, yaw, aspect, time) {
@@ -2096,10 +2178,14 @@
         w = Math.round(canvas.clientWidth * ratio),
         h = Math.round(canvas.clientHeight * ratio);
       if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
+        if (this.batches) this.batches.resize(w, h);
+        else {
+          canvas.width = w;
+          canvas.height = h;
+        }
         gl.viewport(0, 0, w, h);
       }
+      this.batches?.begin();
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       const { x, y, z, time } = state;
       const width = canvas.clientWidth,
@@ -2197,7 +2283,7 @@
           : kind === 'crumble' ? '#ed9685' : pad.style?.color ?? course.fabric[i % course.fabric.length];
         const thickness = kind === 'tilt' ? 0.62 : kind === 'crumble' ? 0.72 : 0.87;
         const material = kind === 'tilt' ? 21 : kind === 'crumble' ? 22 + 0.95 * (pad.warning || 0) : 20;
-        this.draw(
+        this.drawOpaque(
           `pad-${pad.style?.shape ?? 'rectangle'}`,
           [px, py - thickness / 2, pz],
           [pw, thickness, pd],
@@ -2223,7 +2309,7 @@
           this.setPadPlane(pad);
           for (let j = 0; j < 3; j++) {
             const dist = pd * (0.19 + j * 0.075);
-            this.draw(
+            this.drawOpaque(
               'ball',
               [px + (dx / len) * dist, py + 0.007, pz + (dz / len) * dist],
               [0.14 + j * 0.028, 0.025, 0.14 + j * 0.028],
@@ -2236,6 +2322,7 @@
           this.drawPortal(portal, state);
         }
       }
+      if (this.batches?.render(this.view, this.colors.get(course.fog), time)) this.restoreRawState();
       const hazardColor = course.id === 'night' ? '#b982c2' : '#e27895';
       for (const h of hazards) {
         const pad = pads[h.at - (course.firstIndex || 0)];
