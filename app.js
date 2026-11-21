@@ -181,6 +181,7 @@
     return course.id + (course.raceVersion ?? (course.difficulty === 'Vaikea' ? '-v6' : '-v5'));
   }
   const previousRaces = [
+    ['-v7', 'Edellisen rataversion ennätys'],
     ['-v6', 'Ennätys ennen uusia liukuja'],
     ['-v5', 'Ennätys ennen yhdistelmäesteitä'],
     ['-v4', 'Edellisen rataversion ennätys'],
@@ -194,12 +195,12 @@
         const key = course.id + version;
         return key !== raceKey(course) && p.completed[key] !== undefined;
       })
-      .map(([version, label]) => ({
-        label: course.raceVersion && course.difficulty !== 'Vaikea' && version === '-v5'
-          ? 'Ennätys ennen uusia liukuja'
-          : label,
-        seconds: p.completed[course.id + version],
-      }));
+      .map(([version, label]) => {
+        if (version === course.previousRaceVersion) label = 'Ennätys ennen korkeuseroja';
+        else if (version === '-v5' && (course.tower || (course.previousPadIndices && course.difficulty !== 'Vaikea')))
+          label = 'Ennätys ennen uusia liukuja';
+        return { label, seconds: p.completed[course.id + version] };
+      });
   }
   function completedCount(p) {
     return courses.filter(

@@ -149,7 +149,8 @@
     const gap = 1.06 + random() * 0.57 + difficulty * 0.42;
     const shift = run.pattern[phase] * run.direction * (1.05 + random() * 0.63 + difficulty * 0.4);
     const nextX = Math.max(-4.45, Math.min(4.45, x + shift));
-    const nextY = Math.max(-0.8, Math.min(2.4, y + (random() - 0.47) * (0.3 + 0.16 * difficulty)));
+    const heightRange = 0.3 + 0.16 * difficulty + 0.67 * Math.max(0, difficulty - 0.2);
+    const nextY = Math.max(-0.8, Math.min(2.4, y + (random() - 0.47) * heightRange));
     run.path.push([
       nextX,
       z + (depth + length) * 0.5 + gap,

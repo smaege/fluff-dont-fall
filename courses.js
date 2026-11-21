@@ -40,7 +40,7 @@
       raceVersion: '-v7',
       caption: 'Kiipeä katolle ja laske sateenkaarta maaliin.',
       description:
-        'Kierrä tornin ympäri kahdesti ja hyppää kattotasanteelle. Katolta lähtee 56 metrin sateenkaariliuku. Alhaalla portaali vie Pilvivaellukselle.',
+        'Kierrä tornin ympäri kahdesti ja hyppää kattotasanteelle. Katolta lähtee 56 metrin sateenkaariliuku, jonka juurella odottaa maaliportaali.',
       sky: ['#937dbb', '#d5bdde', '#ffdac5'],
       fog: '#e4cedf',
       fabric: ['#a3dacf', '#ffd5ae', '#c7a7e2', '#edadba'],
@@ -855,6 +855,30 @@
     tulip: [20, 30],
   };
   const rideGifts = { cloud: 4, candy: 11, night: 19 };
+  const terrain = {
+    Helppo: { rank: 0, amplitude: 0.15, step: 0.38 },
+    Keskitaso: { rank: 1, amplitude: 0.32, step: 0.65 },
+    Vaikea: { rank: 2, amplitude: 0.49, step: 0.87 },
+  };
+  const heightPattern = [0, 0.25, 0.82, 0.48, -0.54, -0.9, 0.44, 0.74, -0.36];
+  function varyHeights(course) {
+    const { path } = course;
+    const { amplitude, step } = terrain[course.difficulty];
+    const heights = path.map((row) => row[2]);
+    const ride = (row) => row[6] === 'stairs' || row[6] === 'slide';
+    for (let i = 1; i < path.length - 1; i++) {
+      if (ride(path[i - 1]) || ride(path[i]) || ride(path[i + 1])) continue;
+      const base = heights[i];
+      // Keep neighbouring jumps within the difficulty's height limit without tightening
+      // an existing authored jump. Use the next pad's original height for fixed ride joins.
+      const previous = path[i - 1][2], next = heights[i + 1];
+      const fromPrevious = Math.max(step, Math.abs(base - heights[i - 1]));
+      const toNext = Math.max(step, Math.abs(base - next));
+      const low = Math.max(previous - fromPrevious, next - toNext);
+      const high = Math.min(previous + fromPrevious, next + toNext);
+      path[i][2] = Math.min(high, Math.max(low, base + amplitude * heightPattern[i % heightPattern.length]));
+    }
+  }
   for (const course of courses) {
     if (rideStops[course.id]) {
       const at = rideGifts[course.id];
@@ -867,11 +891,16 @@
       course.raceVersion = '-v7';
       course.description += ' Välilipun jälkeen pääset ' + length + ' metrin sateenkaariliukuun.';
     }
+    if (!course.tower) {
+      varyHeights(course);
+      course.previousRaceVersion = course.raceVersion ?? (course.difficulty === 'Vaikea' ? '-v6' : '-v5');
+      course.raceVersion = '-v8';
+    }
   }
+  courses.sort((a, b) => terrain[a.difficulty].rank - terrain[b.difficulty].rank);
   function challenge(course, index = 0) {
     if (course.endless) return Math.max(0, Math.min(1, index / 100));
-    if (course.difficulty === 'Vaikea') return 1;
-    return course.difficulty === 'Keskitaso' ? 0.5 : 0;
+    return (terrain[course.difficulty]?.rank ?? 0) / 2;
   }
   function surfaceHeight(pad, x, z) {
     if (pad.kind === 'stairs' || pad.kind === 'slide') return window.FluffSkyRides.height(pad, x, z);

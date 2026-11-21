@@ -80,7 +80,7 @@
     varying vec3 vNormal,vPos,vLocal,vFabric,vGrainNormal; varying float vDepth;
     uniform sampler2D fleece, shortPile, knitLoops;
     uniform vec3 fog,clothTint,camera; uniform vec2 studioFeet; uniform float garment,pileLength;
-    uniform float sceneTime;
+    uniform float sceneTime, slideSparkleTime;
     uniform vec2 portalMotion;
     uniform vec3 portalAccent;
     float hash(vec2 p){return fract(sin(dot(p,vec2(41.71,289.33)))*4375.76);}
@@ -394,6 +394,20 @@
         dye=mix(dye,vec3(1.,.89,.76),smoothstep(.445,.474,abs(u)));
         float stitches=(1.-smoothstep(.002,.005,abs(abs(u)-.42)))*smoothstep(-.3,.3,cos(t*390.));
         col=mix(dye,vec3(1.,.97,.86),stitches*.91)*light;
+        if(vDepth<42.){
+          // Sparse glints are fixed in the slide's fabric and pulse out of phase.
+          vec2 grid=vFabric.xz*vec2(2.5,2.)+vec2(.16,.27);
+          vec2 cell=floor(grid);
+          float seed=hash(cell+21.);
+          vec2 q=abs(fract(grid)-.5-.32*(vec2(hash(cell+7.),hash(cell+13.))-.5));
+          float cross=max(q.x,q.y)*.56+min(q.x,q.y)*2.8;
+          float star=1.-smoothstep(.018,.119,cross);
+          float halo=1.-smoothstep(.025,.16,length(q));
+          float shimmer=.23+.77*pow(.5+.5*cos(slideSparkleTime*(1.55+1.3*seed)+seed*57.),5.);
+          float sparkle=smoothstep(.60,.78,seed)*shimmer*(star+.22*halo);
+          sparkle*=(1.-smoothstep(14.,42.,vDepth))*smoothstep(.1,.65,n.y);
+          col=mix(col,vec3(1.,.98,.89),.86*sparkle);
+        }
       }
       if(material>=10.){
         float lit=floor((material-10.)*10.+.5);
@@ -1691,6 +1705,7 @@
         'pileLength',
         'studioFeet',
         'sceneTime',
+        'slideSparkleTime',
         'portalMotion',
         'portalAccent',
       ])
@@ -2240,6 +2255,8 @@
       gl.uniform3fv(u.fog, rgb(course.fog));
       this.clouds.length = 0;
       gl.uniform1f(u.sceneTime, time);
+      const slideSparkleTime = this.reducedMotion?.matches ? 0 : time;
+      gl.uniform1f(u.slideSparkleTime, slideSparkleTime);
       if (course.id === 'frost') {
         gl.depthMask(false);
         this.draw('aurora-sky', [0, 0, 0], unitSize, course.fog, 0, -18);
@@ -2322,7 +2339,7 @@
           this.drawPortal(portal, state);
         }
       }
-      if (this.batches?.render(this.view, this.colors.get(course.fog), time)) this.restoreRawState();
+      if (this.batches?.render(this.view, this.colors.get(course.fog), time, slideSparkleTime)) this.restoreRawState();
       const hazardColor = course.id === 'night' ? '#b982c2' : '#e27895';
       for (const h of hazards) {
         const pad = pads[h.at - (course.firstIndex || 0)];

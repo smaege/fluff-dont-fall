@@ -763,11 +763,21 @@ test('Pilvivaellus gifts still grant badge and outfit rewards once per run', () 
   assert.equal(game.state.lifeProgress, 9);
 });
 
+test('the lobby and portals follow the same rising difficulty order', () => {
+  const { courses, endless } = startGame();
+  const order = ['Helppo', 'Keskitaso', 'Vaikea', 'Loputon'];
+  const route = [...courses.all, endless.course];
+  for (let i = 1; i < route.length; i++) {
+    assert.ok(order.indexOf(route[i - 1].difficulty) <= order.indexOf(route[i].difficulty));
+    assert.equal(courses.nextCourse(route[i - 1]), route[i]);
+  }
+  assert.equal(courses.nextCourse(endless.course), null);
+});
+
 test('the last finite portal carries lives and badge progress to the first Pilvivaellus goal', () => {
   const { game, courses, place, press, advance } = startGame();
   const lastCourse = courses.all.at(-1);
-  assert.equal(lastCourse.id, 'tower');
-  assert.equal(courses.nextCourse(courses.all.find((c) => c.id === 'tulip')).id, 'tower');
+  assert.equal(lastCourse.id, 'tulip');
   game.start(lastCourse, { lives: 2, lifeProgress: 9 });
   const finish = game.draw().at(-1);
   const nextCourse = courses.nextCourse(lastCourse);
