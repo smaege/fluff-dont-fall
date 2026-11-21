@@ -131,6 +131,47 @@
       bool plush=body||mantle||material== -1.||residentFace;
       vec3 sun=normalize(vec3(-.58,.76,-.32));
       float incidence=dot(n,sun);
+      if(material>=20. && material<23.){
+        // The cover and darker inset side meet at a raised cord seam.
+        float y=vLocal.y;
+        vec3 dye=mix(color*vec3(.67,.62,.74),color,smoothstep(-.17,.27,y));
+        float warning=clamp(material-22.,0.,1.);
+        dye=mix(dye,vec3(.96,.36,.25),warning*.47);
+        vec3 weights=pow(abs(n),vec3(4.));
+        weights/=max(.01,weights.x+weights.y+weights.z);
+        vec3 p=vFabric*.94;
+        float nap=dot(weights,vec3(texture2D(shortPile,p.zy).r,texture2D(shortPile,p.xz).r,texture2D(shortPile,p.xy).r));
+        float grazing=pow(1.-abs(dot(n,normalize(camera-vPos))),2.5);
+        float light=.62+.42*smoothstep(-.90,.91,incidence)+.05*n.y;
+        vec3 fabric=dye*light*(.84+.29*nap);
+        fabric+=mix(dye,vec3(1.,.90,.83),.58)*grazing*.12;
+
+        // Shallow quilting draws a diamond pattern across the broad top panel.
+        vec2 uv=vec2(vFabric.x+vFabric.z,vFabric.x-vFabric.z)*.83;
+        vec2 diamond=abs(fract(uv+.5)-.5);
+        float channel=1.-smoothstep(.012,.065,min(diamond.x,diamond.y));
+        float loft=sin(3.14159*diamond.x)*sin(3.14159*diamond.y);
+        float top=smoothstep(.65,.94,n.y)*smoothstep(.44,.495,y);
+        float detail=1.-smoothstep(16.,46.,vDepth);
+        fabric*=1.+top*(loft*.043-channel*.10)*detail;
+        if(material==21.){
+          vec2 panel=abs(vLocal.xz);
+          float tape=(1.-smoothstep(.009,.022,abs(panel.x-.365)))*(1.-smoothstep(.31,.42,panel.y));
+          fabric=mix(fabric,vec3(.98,.79,.53)*light,tape*top*.79);
+        }
+        float angle=atan(vLocal.z,vLocal.x+.00001);
+        vec3 thread=mix(dye,vec3(1.,.94,.81),.75);
+        float groove=1.-smoothstep(.012,.034,abs(y-.198));
+        float piping=1.-smoothstep(.013,.032,abs(y-.246));
+        float runningStitch=cos(angle*55.+y*31.);
+        float stitch=(1.-smoothstep(.012,.033,abs(y-.402)))*smoothstep(.17,.60,runningStitch);
+        fabric=mix(fabric,fabric*.67,groove*.72);
+        fabric=mix(fabric,thread*light,piping*(.71+.15*nap));
+        fabric=mix(fabric,thread*(light+.12),stitch*.92*detail);
+        float haze=1.-exp(-max(0.,vDepth-7.)*.011);
+        gl_FragColor=vec4(mix(fabric,fog,min(haze,.87)),1.);
+        return;
+      }
       if(material== -21.){
         float a=atan(vLocal.y,vLocal.x+.00001), r=length(vLocal.xy);
         float t=portalMotion.x, wake=portalMotion.y;
@@ -293,7 +334,7 @@
         if(mantle && (clothCover>.48 || (garment>2.5 && p.y<-.38))) discard;
         if(material==3.4 && (clothCover<.48 || panel.z<-.14)) discard;
       }
-      if((material>.5&&material<1.5)||(material>4.95&&material<5.5)){
+      if(material>.5&&material<1.5){
         float edge=max(abs(vLocal.x),abs(vLocal.z));
         float stitch=1.-smoothstep(.004,.013,abs(edge-.437));
         float along=abs(vLocal.x)>abs(vLocal.z)?vLocal.z:vLocal.x;
@@ -304,36 +345,15 @@
         float stripe=sin(vLocal.y*21.+vLocal.x*9.);
         col=mix(col,vec3(1.,.91,.84)*light,smoothstep(-.08,.08,stripe)*.85);
       }
-      if(material>3.5&&material<5.){
-        float warning=material-4.;
-        float plush=smoothstep(-.45,.48,vLocal.y);
-        col=mix(col*.79,col*1.08,plush);
-        col=mix(col,vec3(1.,.44,.34)*light,warning*.45);
-      }
-      if(material>4.95&&material<5.5){
-        vec2 p=abs(vLocal.xz);
-        float tape=(1.-smoothstep(.048,.055,p.y))*(1.-smoothstep(.15,.28,p.x));
-        float piping=(1.-smoothstep(.004,.009,abs(p.x-.397)))*(1.-smoothstep(.36,.402,p.y));
-        col=mix(col,vec3(1.,.86,.59)*light,max(tape,piping)*smoothstep(.4,.9,n.y));
-      }
       if(material>5.5&&material<6.5){
         float stripe=smoothstep(-.12,.12,cos(vLocal.x*69.115));
         col=mix(col,vec3(1.,.88,.68)*light,stripe*.93);
       }
-      if(material>7.5&&material<8.5){
-        float side=1.-smoothstep(-.30,.30,vLocal.y);
-        col*=1.-.19*side;
-        float seam=1.-smoothstep(.014,.033,abs(vLocal.y-.18));
-        float angle=atan(vLocal.z,vLocal.x+.0001);
-        float stitches=(1.-smoothstep(.009,.021,abs(vLocal.y-.275)))*smoothstep(.10,.45,cos(angle*64.));
-        vec3 thread=mix(color,vec3(1.,.97,.88),.82)*(light+.08);
-        col=mix(col,col*.62,seam*.75);
-        col=mix(col,thread,stitches*.86);
-      }
       if(material>8.5&&material<9.5){
         float t=vLocal.z+.5;
         float arc=sin(3.141593*t);
-        float u=vLocal.x-.14*sin(6.283185*t)*arc*arc;
+        float curve=.14+material-9.;
+        float u=vLocal.x-curve*sin(6.283185*t)*arc*arc;
         float band=clamp((u+.44)*7./.88,0.,6.999);
         vec3 dye=vec3(.94,.44,.53);
         dye=mix(dye,vec3(1.,.66,.39),smoothstep(.96,1.04,band));
@@ -1501,7 +1521,7 @@
         continue;
       }
       const rise = (Math.abs(p.slopeX || 0) * p.w + Math.abs(p.slopeZ || 0) * p.d) / 2;
-      if (anchor[1] > p.y + rise + 0.16) continue; // The camera arm always rises from the anchor.
+      if (anchor[1] - Math.max(0, forward[1]) * distance > p.y + rise + 0.16) continue;
       const low = [p.x - p.w / 2 - 0.13, p.y - rise - 0.97, p.z - p.d / 2 - 0.13];
       const high = [p.x + p.w / 2 + 0.13, p.y + rise + 0.13, p.z + p.d / 2 + 0.13];
       const entry = cameraBoxEntry(anchor, forward, distance, low, high);
@@ -1519,6 +1539,18 @@
       distance = Math.min(distance, Math.max(0.24, entry - 0.08));
     }
     return distance;
+  }
+  function towerCameraDistance(anchor, forward, distance, tower) {
+    const [x, y, z] = anchor;
+    const dz = z - tower.z;
+    const a = forward[0] ** 2 + forward[2] ** 2;
+    const toward = x * forward[0] + dz * forward[2];
+    const radius = tower.radius + 0.16;
+    const discriminant = toward ** 2 - a * (x * x + dz * dz - radius ** 2);
+    if (discriminant <= 0) return distance;
+    const entry = (toward - Math.sqrt(discriminant)) / a;
+    if (entry < 0 || entry > distance || y - forward[1] * entry >= tower.roof) return distance;
+    return Math.max(0.34, entry - 0.09);
   }
   let sharedMeshes;
   function meshTemplates() {
@@ -1546,7 +1578,7 @@
         arch: arch(),
         ...window.FluffSkyBalloons.meshes(),
         ...Object.fromEntries(
-          window.FluffPadStyles.shapes.map((shape) => [
+          [...window.FluffPadStyles.shapes, 'rectangle'].map((shape) => [
             `pad-${shape}`,
             window.FluffPadStyles.mesh(shape),
           ]),
@@ -1620,12 +1652,7 @@
       gl.enableVertexAttribArray(this.pos);
       gl.enableVertexAttribArray(this.normal);
       this.meshes = {};
-      for (const [name, verts] of meshTemplates()) {
-        const buffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-        gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-        this.meshes[name] = { buffer, count: verts.length / 6 };
-      }
+      this.uploadMeshes(meshTemplates());
       makeFleece(gl);
       for (const [unit, sampler, pixels] of [
         [2, 'shortPile', makePileTile()],
@@ -1644,9 +1671,26 @@
       this.colors = new Map();
       this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     }
+    uploadMeshes(templates) {
+      const gl = this.gl;
+      for (const [name, vertices] of templates) {
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        this.meshes[name] = { buffer, count: vertices.length / 6 };
+      }
+    }
     setup(course) {
       this.course = course;
       this.destination = window.FluffCourses.nextCourse(course);
+      if (course.tower && !this.towerMeshesLoaded) {
+        const descent = window.FluffSkyRides.slideMesh(course.tower.descent);
+        this.uploadMeshes([
+          ...Object.entries(window.FluffTowerScenery.meshes()),
+          ['tower-slide', new Float32Array(descent)],
+        ]);
+        this.towerMeshesLoaded = true;
+      }
       this.cloudRenderer ??= new window.FluffClouds(this.gl);
       this.clouds = [];
       this.colors.set(course.fog, rgb(course.fog));
@@ -1662,6 +1706,7 @@
         meadow: '#84aa8c',
         lagoon: '#7aa9c9',
         tulip: '#a28fbb',
+        tower: '#a98dbb',
         endless: '#b59fae',
       };
       this.cloudShade = rgb(shade[course.id]);
@@ -2059,8 +2104,11 @@
       const { x, y, z, time } = state;
       const width = canvas.clientWidth,
         height = canvas.clientHeight;
-      const focalY = (lens * height) / 2,
-        focalX = (lens * (h / w) * width) / 2;
+      // Keep the neighbouring landing pads in view on a tall phone display.
+      const lensY = focus ? lens : clamp(2.12 * width / height, 0.96, lens),
+        lensX = lensY * h / w,
+        focalY = lensY * height / 2,
+        focalX = lensX * width / 2;
       const across = focus ? (focus.x - width / 2) / focalX : 0;
       const above = focus ? (height / 2 - focus.y) / focalY : 0;
       // Aim off-centre by turning the camera, keeping the eye in front of the
@@ -2068,7 +2116,7 @@
       const pitch = focus
         ? -0.14 - Math.atan(above)
         : this.thirdPerson
-          ? clamp(state.pitch - 0.17, -0.79, -0.12)
+          ? clamp(state.pitch - 0.17, -0.79, course.tower ? 0.46 : -0.12)
           : state.pitch;
       const yaw = focus
         ? focus.speaker.yaw - Math.atan2(across, Math.cos(pitch) - above * Math.sin(pitch))
@@ -2092,16 +2140,17 @@
         this.cameraY =
           this.cameraY === null ? y : this.cameraY + (y - this.cameraY) * (1 - Math.exp(-12 * elapsed));
         const anchor = [x + 0.5 * sy, clamp(this.cameraY, y - 0.45, y + 0.45) + 1.58, z + 0.5 * cy];
-        const arm = followDistance(anchor, forward, pads, hazards, time);
+        let arm = followDistance(anchor, forward, pads, hazards, time);
+        if (course.tower) arm = towerCameraDistance(anchor, forward, arm, course.tower);
         camera = anchor.map((v, i) => v - arm * forward[i]);
       } else this.cameraY = null;
-      this.view = { camera, right, up, forward, width, height, focalX, focalY };
+      this.view = { camera, right, up, forward, width, height, focalX, focalY, lensX, lensY };
       this.lastCameraTime = time;
       gl.uniform3fv(u.camera, camera);
       gl.uniform3fv(u.rightDir, right);
       gl.uniform3fv(u.upDir, up);
       gl.uniform3fv(u.forwardDir, forward);
-      gl.uniform2f(u.lens, (lens * h) / w, lens);
+      gl.uniform2f(u.lens, lensX, lensY);
       gl.uniform3fv(u.fog, rgb(course.fog));
       this.clouds.length = 0;
       gl.uniform1f(u.sceneTime, time);
@@ -2111,7 +2160,8 @@
         gl.depthMask(true);
       }
       this.drawSky(camera, yaw, w / h, time);
-      window.FluffSkyCharms.draw(this, pads, state, camera, forward, right, up, w / h);
+      if (course.tower) window.FluffTowerScenery.draw(this);
+      window.FluffSkyCharms.draw(this, pads, state);
       let portal;
       for (const pad of pads) {
         const { x: px, y: py, z: pz, w: pw, d: pd, index: i, kind } = pad,
@@ -2124,7 +2174,9 @@
           continue;
         }
         if (kind === 'slide') {
-          this.draw('slide', [px, py, pz], [pw, 1, pd], '#f8bbbf', 0, 9);
+          const mesh = pad.slide?.through ? 'tower-slide' : 'slide';
+          const material = pad.slide ? 9 + pad.slide.curve - 0.14 : 9;
+          this.draw(mesh, [px, py, pz], [pw, 1, pd], '#f8bbbf', 0, material);
           const entrance = pz - pd / 2 + 0.15;
           for (const side of [-1, 1]) {
             const rail = px + side * pw * 0.485;
@@ -2140,42 +2192,19 @@
           this.draw('ball', [px, pivotY - 0.59, pz], [pw * 0.37, 0.67, pd * 0.38], '#a383a7');
         }
         this.setPadPlane(pad);
-        if (pad.style) {
-          this.draw(
-            `pad-${pad.style.shape}`,
-            [px, py - 0.435, pz],
-            [pw, 0.87, pd],
-            pad.style.color,
-            0,
-            8,
-          );
-        } else if (kind === 'crumble') {
-          const warning = clamp(pad.warning || 0, 0, 1);
-          this.draw('box', [px, py - 0.36, pz], [pw, 0.72, pd], '#ed9685', 0, 4 + warning * 0.9);
-        } else if (kind === 'tilt') {
-          this.draw('box', [px, py - 0.265, pz], [pw, 0.32, pd], '#437581');
-        } else {
-          this.draw('box', [px, py - 0.5, pz], [pw, 0.85, pd], course.side);
-        }
-        if (!pad.style && kind !== 'crumble') {
-          this.draw(
-            'box',
-            [px, py - 0.245, pz],
-            [pw * 1.013, 0.16, pd * 1.013],
-            kind === 'tilt' ? '#edb87d' : i % 2 ? '#f1d4c5' : '#f8e6cd',
-          );
-          const fabric = kind === 'tilt' ? '#7cb4ba'
-            : kind === 'gust' ? '#9ddbd6'
-            : course.fabric[i % course.fabric.length];
-          this.draw(
-            'box',
-            [px, py - 0.155, pz],
-            [pw, 0.31, pd],
-            finish ? '#ffdf9a' : checkpoint ? '#a7e4cd' : fabric,
-            0,
-            kind === 'tilt' ? 5 : 1,
-          );
-        }
+        const fabric = finish || kind === 'tower-roof' ? '#ffdf9a' : checkpoint ? '#a7e4cd'
+          : kind === 'tilt' ? '#7cb4ba' : kind === 'gust' ? '#9ddbd6'
+          : kind === 'crumble' ? '#ed9685' : pad.style?.color ?? course.fabric[i % course.fabric.length];
+        const thickness = kind === 'tilt' ? 0.62 : kind === 'crumble' ? 0.72 : 0.87;
+        const material = kind === 'tilt' ? 21 : kind === 'crumble' ? 22 + 0.95 * (pad.warning || 0) : 20;
+        this.draw(
+          `pad-${pad.style?.shape ?? 'rectangle'}`,
+          [px, py - thickness / 2, pz],
+          [pw, thickness, pd],
+          fabric,
+          0,
+          material,
+        );
         this.setPadPlane(null);
         if (kind === 'gust' && Math.hypot(px - x, pz - z) < 45) window.FluffGust.draw(this, pad, time);
         if (checkpoint) {
@@ -2296,10 +2325,10 @@
       }
       this.drawStars(state, pads);
       this.drawGifts(state, pads);
-      window.FluffVillage.draw(this, pads, state, camera, forward, right, up, w / h);
-      if (!focus) window.FluffSkyFriends.draw(this, pads, state, camera, forward, right, up, w / h);
+      window.FluffVillage.draw(this, pads, state);
+      if (!focus) window.FluffSkyFriends.draw(this, pads, state);
       if (!focus && this.look && this.thirdPerson) this.character(state);
-      this.cloudRenderer.draw(this, this.clouds, camera, right, up, forward, w / h);
+      this.cloudRenderer.draw(this, this.clouds, this.view);
       if (portal) this.drawPortalSilk(portal);
       if (!focus) {
         window.FluffPetalRain.draw(this);

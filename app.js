@@ -178,9 +178,10 @@
     return '<span class="star-purse">' + icon('badge') + badges(n) + '</span>';
   }
   function raceKey(course) {
-    return course.id + (course.difficulty === 'Vaikea' ? '-v6' : '-v5');
+    return course.id + (course.raceVersion ?? (course.difficulty === 'Vaikea' ? '-v6' : '-v5'));
   }
   const previousRaces = [
+    ['-v6', 'Ennätys ennen uusia liukuja'],
     ['-v5', 'Ennätys ennen yhdistelmäesteitä'],
     ['-v4', 'Edellisen rataversion ennätys'],
     ['-v3', 'Yllätyslaatikkoradan ennätys'],
@@ -193,7 +194,12 @@
         const key = course.id + version;
         return key !== raceKey(course) && p.completed[key] !== undefined;
       })
-      .map(([version, label]) => ({ label, seconds: p.completed[course.id + version] }));
+      .map(([version, label]) => ({
+        label: course.raceVersion && course.difficulty !== 'Vaikea' && version === '-v5'
+          ? 'Ennätys ennen uusia liukuja'
+          : label,
+        seconds: p.completed[course.id + version],
+      }));
   }
   function completedCount(p) {
     return courses.filter(
@@ -862,9 +868,10 @@
     sound.play('click');
   }
   $('sound').onclick = toggleSound;
-  let thirdPerson = false;
+  let thirdPerson = matchMedia('(pointer: coarse)').matches;
   try {
-    thirdPerson = localStorage.getItem('fluff-camera') === 'follow';
+    const savedCamera = localStorage.getItem('fluff-camera');
+    if (savedCamera) thirdPerson = savedCamera === 'follow';
   } catch {}
   function syncControls() {
     const music = sound.musicEnabled();
@@ -940,7 +947,7 @@
         '<p>Voit kävellä suoraan portaille. Jokainen askelma kantaa viisi sekuntia. Saat uudet viisi sekuntia, kun astut sille uudelleen. Pudonnut askelma palaa pian paikalleen. Huipulta pääset sateenkaariliukuun.</p>' +
         '<p>Välilyönnin tai Hyppää-painikkeen näpäytys riittää hyppyyn. Pehmo jatkaa ilmassa ponnistussuuntaan, ja voit ohjata sitä kohti laskeutumispaikkaa. Toinen näpäytys ilmassa tekee pyörähdyshypyn. Sillä yllät siipipakettiin, josta saat varusteen tai molemmat varusteet löydettyäsi kuusi tassumerkkiä.</p>' +
         '<div class="control-list"><div><strong>Liiku</strong><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span></div><div><strong>Katso ympärillesi</strong><span>Hiiri tai <kbd>←</kbd> <kbd>→</kbd></span></div><div><strong>Hyppää</strong><kbd>Välilyönti</kbd></div><div><strong>Vaihda kuvakulmaa</strong><kbd>V</kbd></div><div><strong>Juttele kyläläiselle</strong><kbd>T</kbd></div><div><strong>Musiikki päälle / pois</strong><kbd>M</kbd></div><div><strong>Tauko</strong><span><kbd>Esc</kbd> / <kbd>P</kbd></span></div></div>' +
-        '<p class="note touch-help">Vedä vasemmalla peukalolla ylös tai alas liikkuaksesi. Vedä sivulle kääntyäksesi ja vinoon tehdäksesi molemmat samalla. Napauta oikeaa puolta hypätäksesi tai pyyhkäise katsoaksesi ympärillesi. Toinen napautus ilmassa tekee pyörähdyshypyn.</p>' +
+        '<p class="note touch-help">Liiku vasemmalla peukalolla. Voit ottaa sivuaskeleita ja jarruttaa ilmassa palauttamalla peukalon keskelle. Pyyhkäise oikealta katsoaksesi ympärillesi tai napauta hypätäksesi. Toinen napautus ilmassa tekee pyörähdyshypyn.</p>' +
         '<p class="note">Napauta kyläläisen puhekuplaa, kun haluat jutella. Samalla nimellä löydät pehmosi ja sen parhaat rata-ajat tästä selaimesta.</p><div class="dialog-actions"><button class="primary" id="help-ok">Selvä!</button></div>',
     );
     $('help-ok').onclick = close;
@@ -1412,12 +1419,14 @@
         : footing?.kind === 'stairs'
           ? 'Askelma putoaa · ' + window.FluffSkyRides.secondsLeft(footing, s.z, s.time) + ' s'
           : footing?.kind === 'slide'
-            ? window.FluffSkyRides.progress(footing, s.z) < 0.9 - 1e-6
+            ? footing.slide?.through || window.FluffSkyRides.progress(footing, s.z) < 0.9 - 1e-6
               ? 'Sateenkaariliuku'
               : 'Sateenkaariliu’un tasanne'
-            : footing && game.course.gifts.some((gift) => gift.aerial && gift.at === footing.index)
-              ? 'Siipipaketti · hyppää kahdesti'
-              : '';
+            : footing?.kind === 'tower-roof'
+              ? 'Sateenkaariliuku katon toisella laidalla'
+              : footing && game.course.gifts.some((gift) => gift.aerial && gift.at === footing.index)
+                ? 'Siipipaketti · hyppää kahdesti'
+                : '';
     if (rideStatus.textContent !== rideMessage) {
       rideStatus.textContent = rideMessage;
       rideStatus.hidden = !rideMessage;

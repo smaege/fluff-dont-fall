@@ -15,11 +15,12 @@
     meadow: ['#a8dc90', '#71ccaa', '#89d4a0', '#b4dc81'],
     lagoon: ['#82c4ec', '#a9d8fa', '#7ccfe8', '#8cb4f3'],
     tulip: ['#c896e7', '#af91dc', '#e1b9ef', '#be9dec'],
+    tower: ['#efb2bc', '#c7a7e2', '#a3dacf', '#ffd5ae'],
     endless: ['#edabb3', '#b8a5e1', '#addbd0', '#ffd5a1'],
   };
   const offsets = {
     cloud: 0, candy: 1, night: 2, grove: 1, reef: 2, orchard: 0, frost: 1,
-    rose: 0, meadow: 2, lagoon: 3, tulip: 0, endless: 0,
+    rose: 0, meadow: 2, lagoon: 3, tulip: 0, tower: 1, endless: 0,
   };
   const styles = Object.fromEntries(
     Object.entries(themes).map(([theme, colors]) => [
@@ -54,16 +55,31 @@
         const radius = 0.5 * (Math.abs(x) ** 4.7 + Math.abs(z) ** 4.7) ** (-1 / 4.7);
         return [x * radius, z * radius];
       }
+      case 'rectangle': {
+        const across = Math.max(Math.abs(x), Math.abs(z));
+        const along = Math.min(Math.abs(x), Math.abs(z));
+        const core = 0.36;
+        const straight = 0.5 / across;
+        const corner = core * (across + along);
+        const radius = along * straight <= core
+          ? straight
+          : corner + Math.sqrt((0.5 - core) ** 2 - 2 * core ** 2 + corner ** 2);
+        return [x * radius, z * radius];
+      }
       default:
         return [x / 2, z / 2];
     }
   }
 
   const contours = Object.fromEntries(
-    shapes.map((shape) => [shape, Array.from({ length: segments }, (_, i) => outlinePoint(shape, i))]),
+    [...shapes, 'rectangle'].map((shape) => [
+      shape,
+      Array.from({ length: segments }, (_, i) => outlinePoint(shape, i)),
+    ]),
   );
 
   function style(course, index, kind) {
+    if (kind === 'tower-roof') return { shape: 'oval', color: '#ffdf9a' };
     if (
       kind ||
       index === 0 ||
@@ -93,18 +109,18 @@
     // Scale and height of each ring from the flat landing surface to the rounded underside.
     const profile = [
       [0, 0.5],
-      [0.66, 0.5],
-      [0.84, 0.49],
-      [0.92, 0.45],
-      [0.97, 0.39],
-      [0.991, 0.31],
-      [0.997, 0.18],
-      [1, 0.04],
-      [0.995, -0.12],
-      [0.98, -0.25],
-      [0.93, -0.37],
-      [0.83, -0.45],
-      [0.64, -0.49],
+      [0.74, 0.5],
+      [0.86, 0.492],
+      [0.93, 0.455],
+      [0.974, 0.376],
+      [0.992, 0.26],
+      [1, 0.1],
+      [0.994, -0.05],
+      [0.987, -0.20],
+      [0.965, -0.32],
+      [0.915, -0.414],
+      [0.81, -0.473],
+      [0.60, -0.495],
       [0, -0.5],
     ];
     const rings = profile.map(([scale, y], ring) => {

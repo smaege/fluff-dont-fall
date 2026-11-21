@@ -242,7 +242,7 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.activeTexture(gl.TEXTURE0);
     }
-    draw(world, list, camera, right, up, forward, aspect) {
+    draw(world, list, { camera, right, up, forward, lensX, lensY }) {
       if (!list.length) return;
       const gl = this.gl,
         u = this.u;
@@ -257,7 +257,7 @@
       gl.uniform3fv(u.rightDir, right);
       gl.uniform3fv(u.upDir, up);
       gl.uniform3fv(u.forwardDir, forward);
-      gl.uniform2f(u.lens, 1.39 / aspect, 1.39);
+      gl.uniform2f(u.lens, lensX, lensY);
       gl.uniform3fv(u.air, world.colors.get(world.course.fog));
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);

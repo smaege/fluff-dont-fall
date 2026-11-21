@@ -249,12 +249,12 @@
     const turn =
       Number(keys.has('ArrowRight') || keys.has('KeyE')) -
       Number(keys.has('ArrowLeft') || keys.has('KeyQ'));
-    s.yaw += (turn * 1.85 + touch.turn * 2.6) * dt;
+    s.yaw += turn * 1.85 * dt;
     let forward =
       Number(keys.has('KeyW') || keys.has('ArrowUp')) -
       Number(keys.has('KeyS') || keys.has('ArrowDown')) +
       touch.forward;
-    let side = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
+    let side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.side;
     const length = Math.max(1, Math.hypot(forward, side));
     forward /= length;
     side /= length;
@@ -265,10 +265,12 @@
     let vx = (forward * sy + side * cy) * speed,
       vz = (forward * cy - side * sy) * speed;
     if (s.grounded === null) {
-      if (forward || side) {
+      if (forward || side || touch.steering) {
         const dx = vx - s.vx,
           dz = vz - s.vz;
-        const steer = Math.min(1, (airAcceleration * pace * dt) / (Math.hypot(dx, dz) || 1));
+        // A held stick near its centre brakes. Releasing it still carries the jump's momentum.
+        const acceleration = airAcceleration * (touch.steering ? 1.45 : 1);
+        const steer = Math.min(1, (acceleration * pace * dt) / (Math.hypot(dx, dz) || 1));
         vx = s.vx + dx * steer;
         vz = s.vz + dz * steer;
       } else {
@@ -283,11 +285,13 @@
     }
     const onSlide = ground?.kind === 'slide';
     const t = onSlide ? rides.progress(ground, s.z) : 1;
-    s.sliding = onSlide && t < 0.9 - 1e-6;
+    const runOut = ground?.slide?.through ? 1 : 0.9;
+    s.sliding = onSlide && t < runOut - 1e-6;
     if (s.sliding) {
-      s.slideSpeed = Math.min(10.5, Math.max(2.3, s.slideSpeed) + 6.4 * dt);
-      const brake = Math.min(1, (0.9 - t) / 0.18);
-      const remaining = ground.z + 0.4 * ground.d - s.z;
+      const topSpeed = ground.slide?.through ? 13.5 : 10.5;
+      s.slideSpeed = Math.min(topSpeed, Math.max(2.3, s.slideSpeed) + 6.4 * dt);
+      const brake = Math.min(1, (runOut - t) / 0.18);
+      const remaining = ground.z + (runOut - 0.5) * ground.d - s.z;
       vz = Math.min(remaining / dt, Math.max(1.5, s.slideSpeed * brake + vz * 0.18));
       const nextZ = s.z + vz * dt;
       // Carry the rider round the curve while leaving both hands free to steer across the stripes.
@@ -301,6 +305,16 @@
     const wind = ground?.kind === 'gust' ? window.FluffGust.wind(ground, s.time) : 0;
     s.z += vz * dt;
     s.x += (vx + wind) * dt;
+    if (course.tower && s.y < course.tower.roof - 0.003) {
+      const { z, radius } = course.tower;
+      const dz = s.z - z;
+      const distance = Math.hypot(s.x, dz);
+      const wall = radius + 0.19;
+      if (distance > 0 && distance < wall) {
+        s.x *= wall / distance;
+        s.z = z + dz * (wall / distance);
+      }
+    }
     if (s.sliding) {
       const center = rides.laneCenter(ground, s.z),
         limit = ground.w * 0.418;
@@ -312,7 +326,20 @@
     s.gait += (Number(stepping) - s.gait) * (1 - Math.exp(-13 * dt));
     if (s.gait > 0.015) s.walk += dt * (8 + 3 * s.gait) * pace;
     if (s.grounded !== null) {
-      const pad = pads[s.grounded - offset];
+      let pad = pads[s.grounded - offset];
+      const next = pads[s.grounded - offset + 1];
+      // The roof, descent and finish are joined surfaces the plush can cross without jumping.
+      const boarding = pad.kind === 'tower-roof' && next?.slide?.through;
+      const arriving = pad.slide?.through && s.z >= pad.z + pad.d / 2 - 1e-6;
+      if ((boarding || arriving) && next && onPad(next, s.x, s.z)) {
+        pad = next;
+        s.grounded = pad.index;
+        s.furthest = Math.max(s.furthest, pad.index);
+        if (arriving) {
+          s.sliding = false;
+          if (!course.endless && pad.index === pads.at(-1).index) s.finishTime ??= s.time;
+        }
+      }
       if (
         pad.gone ||
         !onPad(pad, s.x, s.z) ||

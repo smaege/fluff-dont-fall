@@ -95,11 +95,14 @@
     };
   }
 
-  function pose(type, pad, time, difficulty = 0) {
+  function pose(type, pad, time, difficulty = 0, travelYaw = 0) {
     const model = models[type];
     const scale = model.scale + 0.035 * ((pad.index % 3) - 1);
     const reach = Math.max(0, pad.w * 0.5 - model.border * scale);
-    const { x, z, height, ...animation } = model.motion(pad, time, difficulty, reach);
+    const { x: motionX, z: motionZ, height, ...animation } = model.motion(pad, time, difficulty, reach);
+    const dx = motionX - pad.x, dz = motionZ - pad.z;
+    const c = Math.cos(travelYaw), s = Math.sin(travelYaw);
+    const x = pad.x + dx * c + dz * s, z = pad.z + dz * c - dx * s;
     const floor = window.FluffCourses.surfaceHeight(pad, x, z);
     return {
       at: pad.index,
@@ -112,6 +115,7 @@
       halfSpan: 0,
       angle: 0,
       ...animation,
+      yaw: animation.yaw + travelYaw,
     };
   }
 

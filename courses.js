@@ -1,5 +1,54 @@
 (() => {
   'use strict';
+  function cloudTower() {
+    const tower = { z: 20, roof: 22.85, radius: 7.05 };
+    const orbit = 11.4, segments = 15;
+    const visitors = ['bee', 'bun', 'moth', 'hedgehog'];
+    const path = [[0, 0, 0, 7.2, 6.2], [0, 4.7, 0.32, 4.8, 4.2]];
+    const checkpoints = [], hazards = [], gifts = [], stars = [];
+    for (let i = 0; i <= 2 * segments; i++) {
+      const angle = (i / segments - 0.25) * 2 * Math.PI;
+      const at = path.length;
+      const balcony = i % 5 === 0;
+      const kind = balcony ? null : i % 5 === 2 ? 'crumble' : i % 5 === 4 ? 'tilt' : null;
+      path.push([
+        orbit * Math.cos(angle), tower.z + orbit * Math.sin(angle), 0.9 + i * 0.685,
+        balcony ? 5.15 : 4.0, balcony ? 5.15 : 4.0, 0, kind,
+      ]);
+      if (balcony) {
+        checkpoints.push(at);
+        if (i % 10 === 5) gifts.push({ at, dx: 0, dz: 0 });
+      } else if (i % 5 === 3) {
+        hazards.push({ at, type: visitors[Math.floor(i / 5) % visitors.length] });
+      } else if (i % 5 === 1 || i % 5 === 4) {
+        stars.push({ at, dx: 0, dz: 0 });
+      }
+    }
+    // The two turns end above the original entrance. The bridge leads through the south gate.
+    path.push([0, 12.55, 22.12, 5.5, 4.5], [0, tower.z, tower.roof, 13.4, 13.4, 0, 'tower-roof']);
+    checkpoints.push(path.length - 1);
+    const start = tower.z + 5.86, length = 56, base = 0.65;
+    const descent = { drop: tower.roof - base + 0.028, curve: 0.52, through: true };
+    path.push(
+      [0, start + length / 2, base, 5.6, length, 0, 'slide', descent],
+      [0, start + length + 3.3, base + 0.018, 8.6, 7.2],
+    );
+    return {
+      id: 'tower',
+      title: 'Pilvilinnan torni',
+      difficulty: 'Keskitaso',
+      raceVersion: '-v7',
+      caption: 'Kiipeä katolle ja laske sateenkaarta maaliin.',
+      description:
+        'Kierrä tornin ympäri kahdesti ja hyppää kattotasanteelle. Katolta lähtee 56 metrin sateenkaariliuku. Alhaalla portaali vie Pilvivaellukselle.',
+      sky: ['#937dbb', '#d5bdde', '#ffdac5'],
+      fog: '#e4cedf',
+      fabric: ['#a3dacf', '#ffd5ae', '#c7a7e2', '#edadba'],
+      side: '#a281b3',
+      tower: { ...tower, descent },
+      path, checkpoints, hazards, stars, gifts,
+    };
+  }
   const courses = [
     {
       id: 'cloud',
@@ -771,9 +820,10 @@
         { at: 23, type: 'shutter' },
       ],
     },
+    cloudTower(),
   ];
   // Insert each stairway and slide as a pair, keeping the original jump gaps and all attached pickups.
-  function addRides(course, after) {
+  function addRides(course, stops) {
     const path = [],
       indices = [];
     let shift = 0;
@@ -782,8 +832,8 @@
       pad[1] += shift;
       indices[i] = path.length;
       path.push(pad);
-      if (after.includes(i)) {
-        const pair = window.FluffSkyRides.rowsAfter(pad);
+      if (stops.has(i)) {
+        const pair = window.FluffSkyRides.rowsAfter(pad, stops.get(i));
         path.push(...pair);
         const exit = pair[1];
         shift += exit[1] + exit[4] / 2 - (pad[1] + pad[4] / 2);
@@ -793,14 +843,29 @@
     course.checkpoints = course.checkpoints.map((i) => indices[i]);
     for (const list of [course.stars, course.gifts, course.hazards])
       for (const entry of list) entry.at = indices[entry.at];
+    return indices;
   }
   const rideStops = { cloud: [4], candy: [5], night: [5, 18], frost: [19], lagoon: [11] };
+  const extraRides = {
+    grove: [8, 22],
+    reef: [7, 26],
+    orchard: [8, 27],
+    rose: [7, 22],
+    meadow: [11, 25],
+    tulip: [20, 30],
+  };
   const rideGifts = { cloud: 4, candy: 11, night: 19 };
   for (const course of courses) {
     if (rideStops[course.id]) {
       const at = rideGifts[course.id];
       if (at !== undefined) course.gifts.push({ at, dx: 0.95, dz: -0.35, loft: 2.75, aerial: true });
-      addRides(course, rideStops[course.id]);
+      addRides(course, new Map(rideStops[course.id].map((at) => [at, undefined])));
+    }
+    if (extraRides[course.id]) {
+      const [at, length] = extraRides[course.id];
+      course.previousPadIndices = addRides(course, new Map([[at, length]]));
+      course.raceVersion = '-v7';
+      course.description += ' Välilipun jälkeen pääset ' + length + ' metrin sateenkaariliukuun.';
     }
   }
   function challenge(course, index = 0) {
@@ -814,13 +879,14 @@
   }
   function platforms(course, time) {
     const offset = course.firstIndex || 0;
-    return course.path.map(([x, z, y, w, d, travel = 0, kind = null], i) => ({
+    return course.path.map(([x, z, y, w, d, travel = 0, kind = null, slide], i) => ({
       x: x + travel * Math.sin(time * 1.1 + offset + i),
       z,
       y,
       w,
       d,
       kind,
+      slide,
       style: window.FluffPadStyles.style(course, offset + i, kind),
       index: offset + i,
     }));
@@ -831,8 +897,10 @@
       if (!pad || pad.gone) return [];
       if (window.FluffObstacles.types.includes(type))
         return window.FluffObstacles.pose(type, pad, time, challenge(course, at));
-      if (window.FluffCritters.types.includes(type))
-        return window.FluffCritters.pose(type, pad, time, challenge(course, at));
+      if (window.FluffCritters.types.includes(type)) {
+        const yaw = course.tower ? Math.atan2(pad.x, pad.z - course.tower.z) : 0;
+        return window.FluffCritters.pose(type, pad, time, challenge(course, at), yaw);
+      }
       if (type === 'shutter' || type === 'hoops')
         return window.FluffFairground.pose(type, pad, time, challenge(course, at));
       const phase = time * rate + at;

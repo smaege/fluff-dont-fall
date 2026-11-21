@@ -453,7 +453,8 @@ h3 {
   color: #785a2e;
 }
 .difficulty.night,
-.difficulty.tulip {
+.difficulty.tulip,
+.difficulty.tower {
   background: #efe6ff;
   border-color: #c6afe5;
   color: #68448c;
@@ -1389,8 +1390,8 @@ dialog.village-dialog::backdrop {
   }
   .touch-jump {
     right: calc(14px + env(safe-area-inset-right));
-    min-width: 77px;
-    min-height: 64px;
+    min-width: 91px;
+    min-height: 72px;
     align-content: center;
     gap: 2px;
     padding: 8px 13px;
@@ -2387,16 +2388,6 @@ dialog.wide #modal-body {
   --paper: #f1f1ff;
   --edge: #9680b6;
   --ink: #654b85;
-}
-#sky-friend-talk[data-friend='human-teal'] {
-  --paper: #ecf9ef;
-  --edge: #75a295;
-  --ink: #375f56;
-}
-#sky-friend-talk[data-friend='human-rose'] {
-  --paper: #fff0f1;
-  --edge: #c18794;
-  --ink: #874f62;
 }
 #sky-friend-talk strong {
   display: block;

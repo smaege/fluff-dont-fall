@@ -2,7 +2,6 @@
   'use strict';
 
   const tau = Math.PI * 2;
-  const lens = 1.39;
   const straightLength = 96;
   const turnRadius = 6;
   const halfLap = straightLength + Math.PI * turnRadius;
@@ -19,6 +18,7 @@
     meadow: ['#72a78c', '#ffedc0', '#d6a0b4'],
     lagoon: ['#668db4', '#fff0c5', '#8fc7d2'],
     tulip: ['#ac7abd', '#fff0cc', '#eaa1a5'],
+    tower: ['#a68ac1', '#fff0ce', '#81bcb6'],
   };
   const materialColors = {
     'balloon-ropes': '#955f4b',
@@ -133,6 +133,15 @@
   }
 
   function fixedRoutes(course) {
+    if (course.tower) {
+      return {
+        path: null,
+        balloons: [
+          { x: 16, y: 29, z: 31, scale: 1.2, phase: 1.48, colors: palettes.tower },
+          { x: -24, y: 17, z: 47, scale: 0.88, phase: 4.35, colors: palettes.tower },
+        ],
+      };
+    }
     const path = course.path.filter((pad) => pad[6] !== 'stairs' && pad[6] !== 'slide');
     const finish = path.at(-1)[1];
     const phase = course.id.charCodeAt(0) * 0.37;
@@ -201,8 +210,7 @@
   }
 
   function draw(world, balloons, offsetZ, time, view, path = null) {
-    const { camera, forward, right, up, width, height } = view;
-    const aspect = width / height;
+    const { camera, forward, right, up, lensX, lensY } = view;
     const motionScale = reducedMotion?.matches ? 0.16 : 1;
     const { gl, u } = world;
     let drew = false;
@@ -218,8 +226,8 @@
       if (depth < -reach || depth > 95 + reach) continue;
       const across = dx * right[0] + dy * right[1] + dz * right[2];
       const above = dx * up[0] + dy * up[1] + dz * up[2];
-      const half = (Math.max(depth, 0) + reach) / lens;
-      if (Math.abs(across) > half * aspect + reach || Math.abs(above) > half + reach) continue;
+      const half = Math.max(depth, 0) + reach;
+      if (Math.abs(across) > half / lensX + reach || Math.abs(above) > half / lensY + reach) continue;
       const cy = Math.cos(yaw),
         sy = Math.sin(yaw),
         cp = Math.cos(pitch),

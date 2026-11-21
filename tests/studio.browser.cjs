@@ -58,8 +58,8 @@ test('two thumbs can steer, look and jump in both phone orientations', async (t)
     cancelAnimationFrame(window.testGame.frame);
   }, ms);
   const state = () => page.evaluate(() => {
-    const s = window.testGame.state;
-    return { yaw: s.yaw, pitch: s.pitch, z: s.z, vy: s.vy, spin: s.spinAt };
+    const { state: s, world } = window.testGame;
+    return { x: s.x, yaw: s.yaw, pitch: s.pitch, z: s.z, vy: s.vy, spin: s.spinAt, lens: world.view.lensY };
   });
   await page.evaluate(() => cancelAnimationFrame(window.testGame.frame));
   for (const { width, height } of [{ width: 390, height: 750 }, { width: 750, height: 390 }]) {
@@ -77,13 +77,15 @@ test('two thumbs can steer, look and jump in both phone orientations', async (t)
     await send('touchMove', steer);
     await step(90);
     const moved = await state();
-    assert.ok(moved.yaw > before.yaw && moved.z > before.z);
+    assert.ok(moved.x > before.x && moved.z > before.z);
+    assert.equal(moved.yaw, before.yaw);
+    assert.equal(moved.lens < 1.39, width < height);
     await send('touchStart', steer, right);
     await send('touchMove', steer, swipe);
     await send('touchEnd', swipe);
     await step(25);
     const aimed = await state();
-    assert.ok(aimed.pitch < moved.pitch && aimed.z > moved.z);
+    assert.ok(aimed.pitch < moved.pitch && aimed.yaw > moved.yaw && aimed.z > moved.z);
     assert.equal(aimed.vy, 0);
     await send('touchStart', steer, right);
     await send('touchEnd', right);
@@ -92,9 +94,9 @@ test('two thumbs can steer, look and jump in both phone orientations', async (t)
     const jumpButton = await page.locator('#touch-jump').boundingBox();
     const jump = point(2, jumpButton.x + jumpButton.width / 2, jumpButton.y + jumpButton.height / 2);
     await send('touchStart', steer, jump);
-    await send('touchEnd', jump);
     await step(25);
     assert.ok((await state()).spin > 0);
+    await send('touchEnd', jump);
     await send('touchEnd');
     assert.equal(await page.locator('#touch-stick').getAttribute('data-held'), null);
 
@@ -114,6 +116,19 @@ test('two thumbs can steer, look and jump in both phone orientations', async (t)
       cancelAnimationFrame(game.frame);
     });
   }
+
+  await page.setViewportSize({ width: 390, height: 750 });
+  const left = point(1, 77, 560), run = point(1, 77, 510);
+  await send('touchStart', left);
+  await send('touchMove', run);
+  for (let i = 0; i < 5; i++) await step(115);
+  const button = await page.locator('#touch-jump').boundingBox();
+  const jump = point(2, button.x + button.width / 2, button.y + button.height / 2);
+  await send('touchStart', run, jump);
+  await send('touchEnd', jump);
+  for (let i = 0; i < 7; i++) await step(115);
+  await send('touchEnd');
+  assert.equal(await page.evaluate(() => window.testGame.state.grounded), 1);
 });
 
 test('old and newly collected gifts can be equipped and saved by their owner', async (t) => {

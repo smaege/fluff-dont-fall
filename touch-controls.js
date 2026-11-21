@@ -1,17 +1,11 @@
 (() => {
   'use strict';
 
-  const reach = 44;
-  const deadZone = 6;
+  const reach = 38;
+  const deadZone = 5;
   const tapSlop = 12;
   const tapDuration = 450;
-  const lookSensitivity = 0.0065;
-
-  function axis(delta) {
-    if (Math.abs(delta) <= deadZone) return 0;
-    const amount = Math.min(1, (Math.abs(delta) - deadZone) / (reach - deadZone));
-    return amount * Math.sign(delta);
-  }
+  const lookSensitivity = 0.0055;
 
   class TouchControls {
     constructor(canvas, running, look, jump) {
@@ -20,7 +14,7 @@
       this.steering = null;
       this.looking = null;
       this.forward = 0;
-      this.turn = 0;
+      this.side = 0;
 
       function contact(event) {
         return {
@@ -42,13 +36,14 @@
           this[hand] = contact(event);
           target.setPointerCapture(event.pointerId);
           (onLeft ? this.stick : this.jumpButton).setAttribute('data-held', '');
+          if (target === this.jumpButton) jump();
         });
         target.addEventListener('pointermove', (event) => {
           if (!running()) return;
           const steer = this.steering;
           if (steer?.id === event.pointerId) {
             this.steer(event.clientX - steer.x, event.clientY - steer.y);
-          } else if (this.looking?.id === event.pointerId) {
+          } else if (target === canvas && this.looking?.id === event.pointerId) {
             const aim = this.looking;
             const dx = event.clientX - aim.x, dy = event.clientY - aim.y;
             if (!aim.dragged && Math.hypot(dx, dy) <= tapSlop) return;
@@ -61,7 +56,7 @@
         });
         target.addEventListener('pointerup', (event) => {
           const aim = this.looking;
-          const tap = aim?.id === event.pointerId && !aim.dragged &&
+          const tap = target === canvas && aim?.id === event.pointerId && !aim.dragged &&
             Math.hypot(event.clientX - aim.x, event.clientY - aim.y) <= tapSlop &&
             event.timeStamp - aim.time <= tapDuration;
           this.release(event.pointerId);
@@ -72,18 +67,21 @@
         }
       }
       this.jumpButton.addEventListener('click', (event) => {
-        // Touch uses pointerup to distinguish taps from camera drags.
+        // Pointer events handle touch. Keep activation by keyboard or mouse.
         if (running() && (event.detail === 0 || event.pointerType === 'mouse')) jump();
       });
       window.addEventListener('orientationchange', () => this.clear());
     }
 
     steer(dx, dy) {
-      this.turn = axis(dx);
-      this.forward = axis(-dy);
-      const scale = Math.max(1, Math.hypot(this.turn, this.forward));
-      this.stick.style.setProperty('--stick-x', this.turn / scale);
-      this.stick.style.setProperty('--stick-y', -this.forward / scale);
+      const distance = Math.hypot(dx, dy);
+      const travel = Math.min(1, Math.max(0, (distance - deadZone) / (reach - deadZone)));
+      // The centre has extra room for small corrections; a full tilt keeps running speed.
+      const scale = travel ** 1.35 / (distance || 1);
+      this.side = travel ? dx * scale : 0;
+      this.forward = travel ? -dy * scale : 0;
+      this.stick.style.setProperty('--stick-x', this.side);
+      this.stick.style.setProperty('--stick-y', -this.forward);
     }
 
     release(id) {

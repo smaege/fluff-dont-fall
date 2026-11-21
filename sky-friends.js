@@ -2,10 +2,8 @@
   'use strict';
 
   const placementStep = 5;
-  const neighborStep = 7;
   const renderDistance = 36;
   const talkDistance = 21;
-  const lens = 1.39;
   const edge = 8;
   const cycleLength = 15;
   const turnLength = 3.05;
@@ -80,6 +78,12 @@
       'Näkeeköhän sen kukasta koko tarhan?',
       'Katsotaan yhdessä. Minä lennän vierelläsi.',
     ],
+    tower: [
+      'Onko kattotasanteella aina näin tuulista?',
+      'Vain silloin kun pilvet kiirehtivät ohi.',
+      'Minä laskin jo kaksi kierrosta.',
+      'Sitten on hyvä hetki pysähtyä ihailemaan maisemaa.',
+    ],
     endless: [
       'Montako pilveä olemme jo ohittaneet?',
       'Neljätoista. Aloitan aina isosta.',
@@ -132,12 +136,15 @@
     if (Math.abs(x) > (opening ? 0 : 1.05)) side = -Math.sign(x);
     if (opening && course.endless && Math.abs(x) < 0.55) side = -1;
     const lead = opening && course.endless ? Math.max(0, 2.55 - Math.abs(x) * 1.35) : 0;
+    const gap = width / 2 + travel + (opening ? 2.15 : 2.85);
+    // The winding platforms face different ways. Always place the flyers on their outer side.
+    const outwardZ = course.tower ? z - course.tower.z : 0;
+    const radius = course.tower ? Math.hypot(x, outwardZ) : 0;
     return {
       at,
-      kind: 'animal',
-      x: x + side * (width / 2 + travel + (opening ? 2.15 : 2.85)),
+      x: x + gap * (radius ? x / radius : side),
       y: y + 1.86 + variation * 0.38,
-      z: z - 0.56 + lead,
+      z: z - 0.56 + lead + (radius ? gap * outwardZ / radius : 0),
       side,
       slot,
       variation,
@@ -171,7 +178,7 @@
     pose.yaw = Math.atan2(pose.x - friend.x, pose.z - friend.z + 0.94);
   }
 
-  function visible(pair, camera, forward, right, up, aspect) {
+  function visible(pair, { camera, forward, right, up, lensX, lensY }) {
     const x = pair.x - camera[0],
       y = pair.y - camera[1],
       z = pair.z - camera[2];
@@ -179,15 +186,30 @@
     const reach = 2.8;
     if (depth < -reach || depth > renderDistance || x * x + y * y + z * z > renderDistance ** 2)
       return false;
-    const view = Math.max(0, depth) / lens;
+    const view = Math.max(0, depth);
     const across = x * right[0] + y * right[1] + z * right[2];
     const above = x * up[0] + y * up[1] + z * up[2];
-    return Math.abs(across) < view * aspect + reach && Math.abs(above) < view + reach;
+    return Math.abs(across) < view / lensX + reach && Math.abs(above) < view / lensY + reach;
   }
 
   function talkPoint(world, pose) {
     const { x, y, z, scale, yaw } = pose;
-    return world.project([x - 0.15 * Math.sin(yaw), y + 0.65 * scale, z - 0.15 * Math.cos(yaw)]);
+    const point = [x - 0.15 * Math.sin(yaw), y + 0.65 * scale, z - 0.15 * Math.cos(yaw)];
+    const tower = world.course.tower;
+    if (tower) {
+      const [eyeX, eyeY, eyeZ] = world.view.camera;
+      const dx = point[0] - eyeX, dy = point[1] - eyeY, dz = point[2] - eyeZ;
+      const centerZ = eyeZ - tower.z;
+      // Check only the portion of the sightline below the roof.
+      if (Math.min(eyeY, point[1]) < tower.roof) {
+        const first = eyeY <= tower.roof ? 0 : (tower.roof - eyeY) / dy;
+        const last = point[1] <= tower.roof ? 1 : (tower.roof - eyeY) / dy;
+        const near = -(eyeX * dx + centerZ * dz) / (dx * dx + dz * dz || 1);
+        const t = Math.max(first, Math.min(last, near));
+        if (Math.hypot(eyeX + dx * t, centerZ + dz * t) < tower.radius) return null;
+      }
+    }
+    return world.project(point);
   }
 
   function inView(point, view) {
@@ -209,11 +231,7 @@
     const turnTime = phase % turnLength;
     const spokenLength = turnLength - 0.42;
     if (turn >= 4 || turnTime > spokenLength) return null;
-    const { course, slot, variation, kind } = encounter;
-    if (kind === 'human') {
-      const emphasis = Math.min(1, turnTime / 0.38, (spokenLength - turnTime) / 0.34);
-      return { who: turn % 2, words: window.FluffSkyNeighbors.dialogue(slot, round)[turn], emphasis };
-    }
+    const { course, slot, variation } = encounter;
     const topic = (slot + round) % 3;
     const lines =
       topic === 0 && routeLines[course.id]
@@ -243,7 +261,7 @@
     if (bubble && !bubble.body.hidden) bubble.body.hidden = true;
   }
 
-  function fitBubble(point, view, width, height, human) {
+  function fitBubble(point, view, width, height) {
     const middle = view.width / 2;
     const clear = Math.min(40, 0.055 * view.width);
     const onRight = point.x > middle;
@@ -278,16 +296,14 @@
         return { left, top, tail: limit(point.x - left, 11, width - 11), direction: 'bottom' };
     }
 
-    const gap = human ? 14 : edge;
     const sideTop = limit(point.y - height / 2, minY, maxY);
     function beside(toRight) {
-      const left = toRight ? point.x + gap : point.x - gap - width;
+      const left = toRight ? point.x + edge : point.x - edge - width;
       const highSide = sideTop + height < clearHeight;
       const sideMinX = highSide ? edge : minX;
       const sideMaxX = highSide ? view.width - edge - width : maxX;
-      const inset = human ? -16 : 5;
       if (left < sideMinX || left > sideMaxX || !free(left, sideTop)) return null;
-      if (point.y <= sideTop + inset || point.y >= sideTop + height - inset) return null;
+      if (point.y <= sideTop + 5 || point.y >= sideTop + height - 5) return null;
       return {
         left,
         top: sideTop,
@@ -295,9 +311,7 @@
         direction: toRight ? 'left' : 'right',
       };
     }
-    const side = beside(onRight);
-    if (side || human) return side || beside(!onRight);
-    return null;
+    return beside(onRight);
   }
 
   function showLine(view, point, speaker, words) {
@@ -308,13 +322,7 @@
     if (copy.textContent !== words) copy.textContent = words;
     if (body.dataset.friend !== speaker.type) body.dataset.friend = speaker.type;
     body.hidden = false;
-    const fit = fitBubble(
-      point,
-      view,
-      body.offsetWidth,
-      body.offsetHeight,
-      speaker.type.startsWith('human-'),
-    );
+    const fit = fitBubble(point, view, body.offsetWidth, body.offsetHeight);
     if (!fit) {
       hide();
       return;
@@ -324,35 +332,35 @@
     body.style.transform = `translate3d(${fit.left.toFixed(1)}px, ${fit.top.toFixed(1)}px, 0)`;
   }
 
-  function draw(world, pads, state, camera, forward, right, up, aspect) {
+  function draw(world, pads, state) {
     const { course, view } = world;
     if (!course?.path || !view?.width || !view.height || !pads?.length) {
       hide();
       return;
     }
     const { time } = state;
+    const { camera } = view;
     if (encounter?.course !== course || encounter?.state !== state) encounter = null;
     const start = course.firstIndex || 0;
     const first = pads[0].index;
     const last = pads.at(-1).index;
-    const firstAnchor = (index, step) => first + ((index - (first % step) + step) % step);
-    const active = (pair) => encounter?.at === pair.at && encounter.kind === pair.kind;
+    const firstAnchor = first + ((2 - (first % placementStep) + placementStep) % placementStep);
+    const active = (pair) => encounter?.at === pair.at;
     let closest;
     let retained;
     function offer(pair, speakers, points) {
       const distance = Math.hypot(pair.x - state.x, pair.y - state.y, pair.z - state.z);
-      if (distance > talkDistance + (pair.kind === 'human' ? 5 : 0)) return;
+      if (distance > talkDistance) return;
       if (!points.some((point) => inView(point, view))) return;
-      const priority = distance - (pair.kind === 'human' && pair.slot === 0 ? 12 : 0);
-      const candidate = { ...pair, priority, points, speakers };
+      const candidate = { ...pair, distance, points, speakers };
       if (active(pair)) retained = candidate;
-      else if (!closest || priority < closest.priority) closest = candidate;
+      else if (!closest || distance < closest.distance) closest = candidate;
     }
-    for (let at = firstAnchor(2, placementStep); at <= last; at += placementStep) {
+    for (let at = firstAnchor; at <= last; at += placementStep) {
       const row = course.path[at - start];
       if (!row || Math.abs(row[1] - camera[2]) > renderDistance + 1) continue;
       const pair = makePair(row, at, course);
-      if (!visible(pair, camera, forward, right, up, aspect)) continue;
+      if (!visible(pair, view)) continue;
       const talking = active(pair) ? lineAt(encounter, time)?.who : undefined;
       const bee = hover(pair, 0, time, talking === 0);
       const moth = hover(pair, 1, time, talking === 1);
@@ -362,23 +370,6 @@
       window.FluffCritters.draw(world, moth, null, time);
 
       offer(pair, [bee, moth], [talkPoint(world, bee), talkPoint(world, moth)]);
-    }
-    const neighbors = window.FluffSkyNeighbors;
-    for (let at = firstAnchor(3, neighborStep); at <= last; at += neighborStep) {
-      const row = course.path[at - start];
-      if (!row || Math.abs(row[1] - camera[2]) > renderDistance + 2.2) continue;
-      const pair = neighbors.pair(row, at, course);
-      if (!visible(pair, camera, forward, right, up, aspect)) continue;
-      const line = active(pair) ? lineAt(encounter, time) : null;
-      const speakers = [
-        neighbors.draw(world, pair, 0, time, line),
-        neighbors.draw(world, pair, 1, time, line),
-      ];
-      offer(
-        pair,
-        speakers,
-        speakers.map((speaker) => world.project(speaker.head)),
-      );
     }
 
     if (retained && closest && time - encounter.start > cycleLength + 0.35) retained = null;
@@ -390,8 +381,8 @@
       return;
     }
     if (!retained) {
-      const { at, slot, variation, kind } = candidate;
-      encounter = { at, slot, variation, kind, course, state, start: time, seen: time };
+      const { at, slot, variation } = candidate;
+      encounter = { at, slot, variation, course, state, start: time, seen: time };
     } else encounter.seen = time;
 
     const line = lineAt(encounter, time);
@@ -403,7 +394,7 @@
   }
 
   function voice(state) {
-    if (encounter?.state !== state || encounter.kind !== 'animal' || !bubble || bubble.body.hidden)
+    if (encounter?.state !== state || !bubble || bubble.body.hidden)
       return;
     const words = bubble.words.textContent;
     if (encounter.heard === words) return;

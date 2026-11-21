@@ -61,6 +61,7 @@ function startGame(courseId = 'cloud', localStorage) {
     'gust',
     'pad-styles',
     'critters',
+    'sky-friends',
     'fairground',
     'obstacles',
     'courses',
@@ -106,7 +107,7 @@ function startGame(courseId = 'cloud', localStorage) {
     effects, sounds,
     profiles: context.FluffProfiles, courses: context.FluffCourses, obstacles: context.FluffObstacles,
     endless: context.FluffEndless,
-    gust: context.FluffGust,
+    gust: context.FluffGust, friends: context.FluffSkyFriends, critters: context.FluffCritters,
   };
 }
 
@@ -192,16 +193,18 @@ test('the left thumb controls speed and steering as the right thumb aims or jump
   assert.equal(state.vz, 0);
   touch('pointermove', 1, 178, 249);
   advance(12);
-  assert.ok(state.yaw > 0 && state.vx > 0);
+  assert.equal(state.yaw, 0);
+  assert.ok(state.vx > 0);
   assert.ok(state.vz > 0 && state.vz < 5.75);
 
   const pitch = state.pitch;
   touch('pointerdown', 2, 315, 270, 100);
   touch('pointermove', 2, 269, 297, 140);
   touch('pointerup', 2, 269, 297, 155);
+  assert.ok(state.yaw < 0);
   assert.ok(state.pitch < pitch);
   assert.equal(state.buffer, 0);
-  assert.ok(game.touch.forward > 0 && game.touch.turn > 0);
+  assert.ok(game.touch.forward > 0 && game.touch.side > 0);
 
   touch('pointerdown', 3, 312, 265, 200);
   touch('pointerup', 3, 313, 266, 800);
@@ -218,7 +221,25 @@ test('the left thumb controls speed and steering as the right thumb aims or jump
   assert.ok(state.vy > 8 && state.spinAt > 0);
   touch('lostpointercapture', 1, 178, 249);
   assert.equal(game.touch.forward, 0);
-  assert.equal(game.touch.turn, 0);
+  assert.equal(game.touch.side, 0);
+});
+
+test('the jump button responds immediately and centring the held stick brakes in midair', () => {
+  const { game, advance, touch, jump } = startGame();
+  const { state } = game;
+  touch('pointerdown', 1, 71, 240);
+  touch('pointermove', 1, 71, 192);
+  advance(6);
+  touch('pointerdown', 2, 352, 244, 100, jump);
+  advance(3);
+  assert.ok(state.vy > 0 && state.vz > 5);
+  touch('pointermove', 1, 71, 240);
+  advance(22);
+  assert.ok(Math.abs(state.vz) < 0.01 && state.grounded === null);
+  assert.equal(state.spinAt, -1);
+  touch('pointerup', 2, 352, 244, 400, jump);
+  advance(3);
+  assert.equal(state.spinAt, -1);
 });
 
 test('a quick jump tap and a direction release in one physics step preserve running speed', () => {
@@ -279,6 +300,126 @@ test('jumping from the slide carries the slide speed into the air', () => {
   assert.equal(game.state.sliding, false);
   assert.equal(game.state.grounded, null);
   assert.ok(game.state.z > takeoffZ + slideSpeed * 0.09);
+});
+
+test('every new slide can be ridden from its checkpoint and jumped from the run-out', () => {
+  const routes = { grove: 22, reef: 26, orchard: 27, rose: 22, meadow: 25, tulip: 30 };
+  for (const [id, length] of Object.entries(routes)) {
+    const { game, pads, place, advance, touch } = startGame(id);
+    const slide = pads.find((pad) => pad.kind === 'slide');
+    assert.equal(slide.d, length, id);
+    assert.ok(game.course.checkpoints.includes(slide.index - 2), id);
+    assert.equal(pads[slide.index - 1].kind, 'stairs', id);
+    const before = pads[slide.index - 2], after = pads[slide.index + 1];
+    const end = slide.z + slide.d / 2;
+    game.course.hazards = [];
+    place(before, before.x, before.z + before.d / 2 - 1);
+    touch('pointerdown', 1, 64, 240);
+    touch('pointermove', 1, 64, 194);
+    let rode = false;
+    for (let frame = 0; frame < 900 && game.state.z < end - 0.45; frame++) {
+      advance(1);
+      rode ||= game.state.sliding;
+    }
+    assert.ok(rode && game.state.z > end - 0.5, id);
+    assert.equal(game.state.grounded, slide.index, id);
+    assert.ok(!game.state.sliding, id);
+    game.state.yaw = Math.atan2(after.x - game.state.x, after.z - game.state.z);
+    touch('pointerdown', 2, 320, 250, 100);
+    touch('pointerup', 2, 320, 250, 170);
+    for (let frame = 0; frame < 125 && game.state.grounded !== after.index; frame++) advance(1);
+    assert.equal(game.state.grounded, after.index, id);
+  }
+});
+
+test('the tower is a continuous climb around two turns, with a solid wall below its roof', () => {
+  const { game, course, pads, place, advance, press, tap } = startGame('tower');
+  const roof = pads.find((pad) => pad.kind === 'tower-roof'), bridge = pads[roof.index - 1];
+  assert.equal(roof.kind, 'tower-roof');
+  assert.ok(roof.y > 22 && course.checkpoints.length >= 5);
+  for (const turn of [2, 17, 32]) {
+    assert.ok(Math.abs(pads[turn].x - pads[2].x) < 1e-6);
+    assert.ok(Math.abs(pads[turn].z - pads[2].z) < 1e-6);
+  }
+  place(bridge);
+  press('KeyW', true);
+  advance(36);
+  assert.ok(game.state.z <= course.tower.z - course.tower.radius);
+  assert.equal(game.state.grounded, bridge.index);
+
+  // Exercise every hop in the real fixed-step loop with the critters out of the way.
+  for (let at = 0; at < roof.index; at++) {
+    const from = pads[at], to = pads[at + 1];
+    assert.ok(to.y > from.y);
+    game.start(course);
+    game.course.hazards = [];
+    const yaw = Math.atan2(to.x - from.x, to.z - from.z);
+    const runUp = from === bridge ? 0.08 : 1.2;
+    place(from, from.x + Math.sin(yaw) * runUp, from.z + Math.cos(yaw) * runUp);
+    game.state.yaw = yaw;
+    press('KeyW', true);
+    tap();
+    for (let frame = 0; frame < 118 && game.state.grounded !== to.index; frame++) advance(1);
+    assert.equal(game.state.grounded, to.index, `tower cushions ${at} → ${to.index}`);
+  }
+});
+
+test('the tower slide carries a rider from the roof to the portal terrace without a jump', () => {
+  const { game, pads, place, advance, press, touch, courses } = startGame('tower');
+  const [roof, slide, finish] = pads.slice(-3);
+  const entry = slide.z - slide.d / 2;
+  const end = slide.z + slide.d / 2;
+  assert.equal(slide.d, 56);
+  assert.ok(game.course.checkpoints.includes(roof.index));
+  assert.ok(Math.abs(courses.surfaceHeight(slide, 0, entry) - roof.y) < 0.04);
+  assert.ok(courses.surfaceHeight(slide, 0, entry) - courses.surfaceHeight(slide, 0, end) > 22);
+  place(roof, 0, entry - 0.5);
+  assert.equal(game.state.finishTime, null);
+  touch('pointerdown', 1, 64, 240);
+  touch('pointermove', 1, 64, 194);
+  advance(18);
+  assert.equal(game.state.grounded, slide.index);
+  touch('pointerup', 1, 64, 194);
+  let fastest = 0;
+  for (let i = 0; i < 1450 && game.state.grounded !== finish.index; i++) {
+    advance(1);
+    fastest = Math.max(fastest, game.state.vz);
+    assert.notEqual(game.state.grounded, null);
+  }
+  assert.ok(fastest > 11);
+  assert.equal(game.state.grounded, finish.index);
+  assert.equal(game.state.lives, 3);
+  assert.equal(game.state.y, finish.y);
+  assert.ok(game.state.finishTime > 0);
+  press('KeyW', true);
+  advance(150);
+  assert.equal(game.mode, 'transferring');
+});
+
+test('the tower wildlife paths keep their wings and bodies clear of the masonry', () => {
+  const { game, pads, courses, friends, critters } = startGame('tower');
+  const tower = game.course.tower;
+  const seen = new Set();
+  critters.draw = (_, pose) => {
+    seen.add(pose.at);
+    assert.ok(Math.hypot(pose.x, pose.z - tower.z) > tower.radius + 2.4 * pose.scale);
+  };
+  const world = {
+    course: game.course,
+    project: () => null,
+    view: {
+      camera: [0, 12, -3], forward: [0, 0, 1], right: [1, 0, 0], up: [0, 1, 0],
+      lensX: 0.55, lensY: 0.55, width: 800, height: 600,
+    },
+  };
+  for (let t = 0; t <= 30; t += 0.1) {
+    game.state.time = t;
+    friends.draw(world, pads, game.state);
+    for (const pose of courses.hazards(game.course, pads, t)) {
+      assert.ok(Math.hypot(pose.x, pose.z - tower.z) > tower.radius + 1.6 * pose.scale);
+    }
+  }
+  assert.ok(seen.size >= 5);
 });
 
 test('walk onto the staircase, revisit a tread, then try the same staircase after a fall', () => {
@@ -625,6 +766,8 @@ test('Pilvivaellus gifts still grant badge and outfit rewards once per run', () 
 test('the last finite portal carries lives and badge progress to the first Pilvivaellus goal', () => {
   const { game, courses, place, press, advance } = startGame();
   const lastCourse = courses.all.at(-1);
+  assert.equal(lastCourse.id, 'tower');
+  assert.equal(courses.nextCourse(courses.all.find((c) => c.id === 'tulip')).id, 'tower');
   game.start(lastCourse, { lives: 2, lifeProgress: 9 });
   const finish = game.draw().at(-1);
   const nextCourse = courses.nextCourse(lastCourse);
@@ -632,7 +775,8 @@ test('the last finite portal carries lives and badge progress to the first Pilvi
     assert.equal(event, 'win');
     game.start(nextCourse, game.state, [], true);
   };
-  place(finish);
+  const portal = courses.finishPortal(finish);
+  place(finish, portal.x, portal.z - 0.8);
   press('KeyW', true);
   advance(32);
   press('KeyW', false);

@@ -22,14 +22,14 @@
   ];
 
   // Both rows use the valley floor as their Y origin, including after an endless rebase.
-  function rowsAfter(previous) {
+  function rowsAfter(previous, length = slideLength) {
     const [x, z, y, , depth] = previous;
     // The bottom tread meets the approach cushion, including its rounded take-off edge.
     const start = z + depth / 2 - 0.48;
     const stairsEnd = start + stepCount * tread;
     return [
       [x, start + (stepCount * tread) / 2, y, width, stepCount * tread, 0, 'stairs'],
-      [x, stairsEnd + slideLength / 2, y, width, slideLength, 0, 'slide'],
+      [x, stairsEnd + length / 2, y, width, length, 0, 'slide'],
     ];
   }
   function progress(pad, z) {
@@ -38,21 +38,21 @@
   function treadAt(pad, z) {
     return Math.min(stepCount - 1, Math.floor(progress(pad, z) * stepCount));
   }
-  function bend(t) {
-    return 0.14 * Math.sin(2 * Math.PI * t) * Math.sin(Math.PI * t) ** 2;
+  function bend(t, curve = 0.14) {
+    return curve * Math.sin(2 * Math.PI * t) * Math.sin(Math.PI * t) ** 2;
   }
   function laneCenter(pad, z) {
-    return pad.kind === 'slide' ? pad.x + pad.w * bend(progress(pad, z)) : pad.x;
+    return pad.kind === 'slide' ? pad.x + pad.w * bend(progress(pad, z), pad.slide?.curve) : pad.x;
   }
-  function ramp(t) {
-    return crest * (1 - smooth(clamp((t - 0.04) / 0.78, 0, 1)));
+  function ramp(t, drop = crest) {
+    return drop * (1 - smooth(clamp((t - 0.04) / 0.78, 0, 1)));
   }
   function lip(u) {
     return 0.49 * smooth(clamp((Math.abs(u) - 0.36) / 0.14, 0, 1));
   }
   function height(pad, x, z) {
     if (pad.kind === 'stairs') return pad.y + treadAt(pad, z) * rise;
-    return pad.y + ramp(progress(pad, z)) + lip((x - laneCenter(pad, z)) / pad.w);
+    return pad.y + ramp(progress(pad, z), pad.slide?.drop) + lip((x - laneCenter(pad, z)) / pad.w);
   }
   function dropped(pad, z, now) {
     const start = pad.footfalls?.[treadAt(pad, z)];
@@ -100,19 +100,19 @@
     }
   }
   // A single continuous strip with rolled edges, a solid underside and a gently curved run-out.
-  function slideMesh() {
+  function slideMesh({ drop = crest, curve = 0.14 } = {}) {
     const out = [],
       count = 56;
     const columns = [-0.5, -0.478, -0.45, -0.42, -0.39, -0.36, 0, 0.36, 0.39, 0.42, 0.45, 0.478, 0.5];
     const point = (u, t, bottom = false) => [
-      u + bend(t),
-      ramp(t) + lip(u) - (bottom ? 0.28 : 0),
+      u + bend(t, curve),
+      ramp(t, drop) + lip(u) - (bottom ? 0.28 : 0),
       t - 0.5,
     ];
     const normal = (u, t) => {
       const e = 0.0002;
       const dx = (lip(u + e) - lip(u - e)) / (2 * e);
-      const dz = (ramp(t + e) - ramp(t - e) - dx * (bend(t + e) - bend(t - e))) / (2 * e);
+      const dz = (ramp(t + e, drop) - ramp(t - e, drop) - dx * (bend(t + e, curve) - bend(t - e, curve))) / (2 * e);
       const len = Math.hypot(dx, 1, dz);
       return [-dx / len, 1 / len, -dz / len];
     };

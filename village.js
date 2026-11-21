@@ -152,8 +152,11 @@
     const first = pads?.[0]?.index ?? start;
     const last = pads?.at(-1)?.index ?? start + course.path.length - 1;
     const route = routes[course.id];
+    const anchors = course.previousPadIndices
+      ? route?.anchors.map((index) => course.previousPadIndices[index])
+      : route?.anchors;
     for (let at = first; at <= last; at++) {
-      const slot = course.endless ? endlessSlot(at) : (route?.anchors.indexOf(at) ?? -1);
+      const slot = course.endless ? endlessSlot(at) : (anchors?.indexOf(at) ?? -1);
       if (slot < 0) continue;
       // The houses sit on their own islands, even beside a moving cushion.
       const [padX, padZ, padY, width] = course.path[at - start];
@@ -395,7 +398,8 @@
     }
   }
 
-  function draw(world, pads, state, camera, forward, right, up, aspect) {
+  function draw(world, pads, state) {
+    const { camera, forward, right, up, lensX, lensY } = world.view;
     for (const home of homes(world.course, pads)) {
       const dx = home.houseX - camera[0],
         dy = home.houseY + 0.95 - camera[1],
@@ -404,8 +408,8 @@
       if (depth < -3.5 || depth > 71) continue;
       const horizontal = dx * right[0] + dz * right[2];
       const vertical = dx * up[0] + dy * up[1] + dz * up[2];
-      const view = Math.max(0, depth) / 1.39;
-      if (Math.abs(horizontal) > view * aspect + 4 || Math.abs(vertical) > view + 4) continue;
+      const view = Math.max(0, depth);
+      if (Math.abs(horizontal) > view / lensX + 4 || Math.abs(vertical) > view / lensY + 4) continue;
       const distance = Math.hypot(dx, dy, dz);
       drawHome(world, home, distance < 28);
       if (distance < 31) {

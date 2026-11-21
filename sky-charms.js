@@ -39,7 +39,6 @@
     ],
   };
   const far = 76;
-  const lens = 1.39;
 
   function starOutline() {
     const corners = Array.from({ length: 10 }, (_, index) => {
@@ -151,8 +150,9 @@
     return Math.imul(mixed ^ (mixed >>> 16), 0x85ebca6b) >>> 0;
   };
 
-  function draw(world, pads, state, camera, forward, right, up, aspect) {
+  function draw(world, pads, state) {
     const { course, gl, u } = world;
+    const { camera, forward, right, up, lensX, lensY } = world.view;
     const first = course.firstIndex || 0;
     const seed = course.seed ?? routeSeeds[course.id] ?? 0;
     const colors = routePalettes[course.id] ?? palettes;
@@ -166,8 +166,8 @@
       if (
         depth < 0.15 ||
         depth >= far ||
-        Math.abs(dot(relative, right)) > (depth * aspect) / lens + size ||
-        Math.abs(dot(relative, up)) > depth / lens + size
+        Math.abs(dot(relative, right)) > depth / lensX + size ||
+        Math.abs(dot(relative, up)) > depth / lensY + size
       )
         return;
 
