@@ -9,16 +9,31 @@ function startGame(courseId = 'cloud', localStorage) {
   const noOp = () => {};
   function eventTarget(properties = {}) {
     const listeners = new Map();
-    return {
+    const captures = new Set();
+    const target = {
+      setPointerCapture: id => captures.add(id),
+      hasPointerCapture: id => captures.has(id),
+      releasePointerCapture: id => captures.delete(id),
+      style: { setProperty: noOp },
+      setAttribute: noOp,
+      removeAttribute: noOp,
       ...properties,
-      addEventListener: (name, listen) => listeners.set(name, listen),
-      dispatch: (name, values) => listeners.get(name)?.({ preventDefault: noOp, ...values }),
+      addEventListener(name, listen) {
+        if (!listeners.has(name)) listeners.set(name, []);
+        listeners.get(name).push(listen);
+      },
+      dispatch(name, values) {
+        for (const listen of listeners.get(name) ?? []) {
+          listen({ preventDefault: noOp, currentTarget: target, ...values });
+        }
+      },
     };
+    return target;
   }
-  const move = eventTarget({ dataset: { move: 'KeyW' }, setPointerCapture: noOp });
-  const jump = eventTarget({ dataset: {}, setPointerCapture: noOp });
+  const stick = eventTarget(), jump = eventTarget();
+  const canvas = eventTarget({ focus: noOp, getBoundingClientRect: () => ({ width: 400, left: 0 }) });
   const context = vm.createContext({
-    document: eventTarget({ querySelectorAll: () => [move, jump] }),
+    document: eventTarget({ getElementById: id => id === 'touch-stick' ? stick : jump }),
     addEventListener: noOp,
     localStorage,
     performance: { now: () => 0 },
@@ -51,12 +66,13 @@ function startGame(courseId = 'cloud', localStorage) {
     'courses',
     'endless',
     'encounter-audio',
+    'touch-controls',
     'game',
   ]) {
     const file = path.join(__dirname, '..', name + '.js');
     vm.runInContext(readFileSync(file, 'utf8'), context, { filename: file });
   }
-  const game = new context.FluffGame(eventTarget({ focus: noOp }), {
+  const game = new context.FluffGame(canvas, {
     frame: noOp, end: noOp, checkpoint: noOp, pause: noOp,
   });
   const course =
@@ -83,8 +99,10 @@ function startGame(courseId = 'cloud', localStorage) {
     press('Space', true);
     press('Space', false);
   };
+  const touch = (name, pointerId, clientX, clientY, timeStamp = 0, target = canvas) =>
+    target.dispatch(name, { pointerType: 'touch', pointerId, clientX, clientY, timeStamp, button: 0 });
   return {
-    game, course, pads, place, advance, press, tap, move, jump,
+    game, course, pads, place, advance, press, tap, touch, canvas, jump,
     effects, sounds,
     profiles: context.FluffProfiles, courses: context.FluffCourses, obstacles: context.FluffObstacles,
     endless: context.FluffEndless,
@@ -130,13 +148,14 @@ test('touch taps and cancellation preserve the arc, and pausing clears held cont
   const held = startGame();
   const released = startGame();
   for (const run of [held, released]) {
-    run.move.dispatch('pointerdown', { pointerId: 1 });
-    run.jump.dispatch('pointerdown', { pointerId: 2 });
+    run.touch('pointerdown', 1, 65, 250);
+    run.touch('pointermove', 1, 65, 205);
+    run.touch('pointerdown', 2, 330, 250);
+    run.touch('pointerup', 2, 330, 250, 80);
     run.advance(1);
   }
   const launchZ = released.game.state.z;
-  released.jump.dispatch('pointerup', { pointerId: 2 });
-  released.move.dispatch('pointercancel', { pointerId: 1 });
+  released.touch('pointercancel', 1, 65, 205);
   held.advance(25);
   released.advance(25);
   assert.equal(released.game.state.y, held.game.state.y);
@@ -148,8 +167,8 @@ test('touch taps and cancellation preserve the arc, and pausing clears held cont
   held.game.resume();
   held.advance(1);
   assert.ok(held.game.state.vz < 5.75 && held.game.state.vz > 5);
-  held.jump.dispatch('pointerdown', { pointerId: 3 });
-  held.jump.dispatch('pointerup', { pointerId: 3 });
+  held.touch('pointerdown', 3, 340, 250, 100, held.jump);
+  held.touch('pointerup', 3, 340, 250, 178, held.jump);
   held.advance(1);
   assert.ok(held.game.state.spinAt > 0);
 
@@ -160,6 +179,46 @@ test('touch taps and cancellation preserve the arc, and pausing clears held cont
   const retryZ = held.game.state.z;
   held.advance(12);
   assert.equal(held.game.state.z, retryZ);
+});
+
+test('the left thumb controls speed and steering as the right thumb aims or jumps', () => {
+  const { game, advance, touch } = startGame();
+  const { state } = game;
+  // Touching the left side anywhere establishes a neutral centre for that thumb.
+  touch('pointerdown', 1, 156, 275);
+  touch('pointermove', 1, 159, 273);
+  advance(4);
+  assert.equal(state.yaw, 0);
+  assert.equal(state.vz, 0);
+  touch('pointermove', 1, 178, 249);
+  advance(12);
+  assert.ok(state.yaw > 0 && state.vx > 0);
+  assert.ok(state.vz > 0 && state.vz < 5.75);
+
+  const pitch = state.pitch;
+  touch('pointerdown', 2, 315, 270, 100);
+  touch('pointermove', 2, 269, 297, 140);
+  touch('pointerup', 2, 269, 297, 155);
+  assert.ok(state.pitch < pitch);
+  assert.equal(state.buffer, 0);
+  assert.ok(game.touch.forward > 0 && game.touch.turn > 0);
+
+  touch('pointerdown', 3, 312, 265, 200);
+  touch('pointerup', 3, 313, 266, 800);
+  touch('pointerdown', 4, 310, 265, 900);
+  touch('pointercancel', 4, 310, 265, 940);
+  assert.equal(state.buffer, 0);
+
+  touch('pointerdown', 5, 309, 260, 1000);
+  touch('pointerup', 5, 312, 264, 1070);
+  touch('pointerdown', 6, 320, 272, 1120);
+  touch('pointerup', 6, 320, 272, 1165);
+  advance(3);
+  assert.equal(state.grounded, null);
+  assert.ok(state.vy > 8 && state.spinAt > 0);
+  touch('lostpointercapture', 1, 178, 249);
+  assert.equal(game.touch.forward, 0);
+  assert.equal(game.touch.turn, 0);
 });
 
 test('a quick jump tap and a direction release in one physics step preserve running speed', () => {

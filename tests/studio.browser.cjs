@@ -8,7 +8,7 @@ const { chromium } = require('playwright');
 
 const index = new URL(process.env.FLUFF_TEST_URL ?? pathToFileURL(path.join(__dirname, '..', 'index.html')));
 
-async function openGame(t) {
+async function openGame(t, contextOptions = {}) {
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_EXECUTABLE,
     args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-background-networking'],
@@ -17,6 +17,7 @@ async function openGame(t) {
   const page = await browser.newPage({
     viewport: { width: 1160, height: 820 },
     reducedMotion: 'reduce',
+    ...contextOptions,
   });
   await page.route(/^https?:/, (route) =>
     new URL(route.request().url()).origin === index.origin ? route.continue() : route.abort(),
@@ -28,6 +29,92 @@ async function openGame(t) {
 function choice(page, key, value) {
   return page.locator(`[data-group="${key}"][data-value="${value}"]`);
 }
+
+test('two thumbs can steer, look and jump in both phone orientations', async (t) => {
+  const page = await openGame(t, {
+    viewport: { width: 390, height: 750 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  await page.evaluate(() => FluffProfiles.open('Tassu'));
+  await page.reload();
+  await page.evaluate(() => {
+    const Game = window.FluffGame;
+    window.FluffGame = class extends Game {
+      constructor(...args) {
+        super(...args);
+        window.testGame = this;
+      }
+    };
+  });
+  await page.locator('#lobby-profile-list button').tap();
+  await page.locator('[data-course="cloud"]').tap();
+  await page.locator('#launch').tap();
+  const gesture = await page.context().newCDPSession(page);
+  const point = (id, x, y) => ({ id, x, y });
+  const send = (type, ...touchPoints) => gesture.send('Input.dispatchTouchEvent', { type, touchPoints });
+  const step = (ms) => page.evaluate(ms => {
+    window.testGame.loop(window.testGame.previous + ms);
+    cancelAnimationFrame(window.testGame.frame);
+  }, ms);
+  const state = () => page.evaluate(() => {
+    const s = window.testGame.state;
+    return { yaw: s.yaw, pitch: s.pitch, z: s.z, vy: s.vy, spin: s.spinAt };
+  });
+  await page.evaluate(() => cancelAnimationFrame(window.testGame.frame));
+  for (const { width, height } of [{ width: 390, height: 750 }, { width: 750, height: 390 }]) {
+    await page.setViewportSize({ width, height });
+    const { x, y, w, h } = await page.locator('#world').evaluate((canvas) => {
+      const rect = canvas.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+    });
+    const left = point(1, x + w * 0.25, y + h * 0.74);
+    const steer = point(1, left.x + 25, left.y - 42);
+    const right = point(2, x + w * 0.67, y + h * 0.69);
+    const swipe = point(2, right.x + 53, right.y + 27);
+    const before = await state();
+    await send('touchStart', left);
+    await send('touchMove', steer);
+    await step(90);
+    const moved = await state();
+    assert.ok(moved.yaw > before.yaw && moved.z > before.z);
+    await send('touchStart', steer, right);
+    await send('touchMove', steer, swipe);
+    await send('touchEnd', swipe);
+    await step(25);
+    const aimed = await state();
+    assert.ok(aimed.pitch < moved.pitch && aimed.z > moved.z);
+    assert.equal(aimed.vy, 0);
+    await send('touchStart', steer, right);
+    await send('touchEnd', right);
+    await step(25);
+    assert.ok((await state()).vy > 0);
+    const jumpButton = await page.locator('#touch-jump').boundingBox();
+    const jump = point(2, jumpButton.x + jumpButton.width / 2, jumpButton.y + jumpButton.height / 2);
+    await send('touchStart', steer, jump);
+    await send('touchEnd', jump);
+    await step(25);
+    assert.ok((await state()).spin > 0);
+    await send('touchEnd');
+    assert.equal(await page.locator('#touch-stick').getAttribute('data-held'), null);
+
+    const selection = await page.evaluate(() => {
+      const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      document.querySelector('#touch-jump span').dispatchEvent(menu);
+      return {
+        userSelect: getComputedStyle(document.querySelector('#play-screen')).userSelect,
+        menuBlocked: menu.defaultPrevented,
+        selected: getSelection().toString(),
+      };
+    });
+    assert.deepEqual(selection, { userSelect: 'none', menuBlocked: true, selected: '' });
+    await page.evaluate(() => {
+      const game = window.testGame;
+      game.start(game.course);
+      cancelAnimationFrame(game.frame);
+    });
+  }
+});
 
 test('old and newly collected gifts can be equipped and saved by their owner', async (t) => {
   const page = await openGame(t);

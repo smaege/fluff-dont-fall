@@ -38,6 +38,7 @@
     <script defer src="plush-wings.js"></script>
     <script defer src="plush.js"></script>
     <script defer src="encounter-audio.js"></script>
+    <script defer src="touch-controls.js"></script>
     <script defer src="game.js"></script>
     <script defer src="village-chat.js"></script>
     <script defer src="portal-travel.js"></script>
@@ -194,18 +195,19 @@
         välilyönti <span>Pyörähdä</span> · V
         <span>Kuvakulma</span>
       </div>
-      <div class="touch-pad" aria-label="Liiku">
-        <button data-move="KeyW" aria-label="Eteen">▲</button
-        ><button data-move="KeyA" aria-label="Vasemmalle">◀</button
-        ><button data-move="KeyS" aria-label="Taakse">▼</button
-        ><button data-move="KeyD" aria-label="Oikealle">▶</button>
+      <div id="touch-stick" class="touch-steering" aria-hidden="true">
+        <div class="touch-stick-track">
+          <span class="touch-stick-knob"><i data-icon="paw"></i></span>
+        </div>
+        <span>Liiku ja käänny</span>
       </div>
       <button
         id="touch-jump"
         class="touch-jump"
-        aria-description="Napauta ilmassa uudelleen tehdäksesi pyörähdyshypyn"
+        type="button"
+        aria-description="Napauta ilmassa uudelleen, niin pehmo pyörähtää."
       >
-        Hyppää
+        <i data-icon="jump"></i><span>Hyppää</span>
       </button>
     </section>
     <dialog id="modal" aria-labelledby="modal-title">

@@ -234,7 +234,7 @@
     const hud = screen.querySelector('.hud');
     screen.insertBefore(body, hud);
     const overlays = [
-      ...screen.querySelectorAll('#village-talk, #gift-reveal, .key-hint, .touch-pad, .touch-jump'),
+      ...screen.querySelectorAll('#village-talk, #gift-reveal, .key-hint, .touch-steering, .touch-jump'),
     ];
     return { screen, body, name, words, hud, overlays };
   }

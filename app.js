@@ -11,6 +11,7 @@
       '<path d="M7 6.5h10c2 0 3.3 1.6 3.8 3.6l1 5c.8 3.8-2.2 5-4.3 2.6L15.5 16h-7l-1.9 1.7c-2.5 2.4-5 1.2-4.2-2.5l.9-5.1C3.8 8 5 6.5 7 6.5Z"/><path d="M7.5 9v4m-2-2h4"/><circle cx="15.4" cy="11.8" r=".8" fill="currentColor"/><circle cx="18.2" cy="9.7" r=".8" fill="currentColor"/>',
     bear: '<path d="M5.7 8.2a3.1 3.1 0 1 1 4.2-4 11 11 0 0 1 4.2 0 3.1 3.1 0 1 1 4.2 4c1.5 1.7 2.3 3.5 2.3 5.7 0 4.4-3.7 7-8.6 7s-8.6-2.6-8.6-7c0-2.2.8-4 2.3-5.7Z"/><path d="M8.3 12.5h.1m7.2 0h.1m-4.6 3.2q.9 1.3 1.8 0"/>',
     play: '<path fill="currentColor" stroke="currentColor" stroke-linejoin="round" d="m6.5 3.8 13.1 8.1-13.1 8.3Z"/>',
+    jump: '<path d="M12 16V4m-5 5 5-5 5 5M6 20h12"/>',
     book: '<path d="M12 6.2C8.8 3.8 5.4 4 2.5 4.8v13.8c3.8-1 6.3-.8 9.5 1.3 3.2-2.1 5.7-2.3 9.5-1.3V4.8c-3.6-.9-6.5-.8-9.5 1.4ZM12 6v13.4"/>',
     camera: '<path d="M3 7h4l1.5-2.5h7L17 7h4v12H3Z"/><circle cx="12" cy="12.6" r="3.3"/>',
     petal:
@@ -938,7 +939,9 @@
         '<p>Putoava laatta heilahtaa, kun laskeudut sille. Hyppää pois ennen kuin laatta putoaa. Laskeudu keikkuvan laudan keskelle ja ohjaa takaisin keskelle, jos alat liukua. Ajoita hyppysi esteiden yli.</p>' +
         '<p>Voit kävellä suoraan portaille. Jokainen askelma kantaa viisi sekuntia. Saat uudet viisi sekuntia, kun astut sille uudelleen. Pudonnut askelma palaa pian paikalleen. Huipulta pääset sateenkaariliukuun.</p>' +
         '<p>Välilyönnin tai Hyppää-painikkeen näpäytys riittää hyppyyn. Pehmo jatkaa ilmassa ponnistussuuntaan, ja voit ohjata sitä kohti laskeutumispaikkaa. Toinen näpäytys ilmassa tekee pyörähdyshypyn. Sillä yllät siipipakettiin, josta saat varusteen tai molemmat varusteet löydettyäsi kuusi tassumerkkiä.</p>' +
-        '<div class="control-list"><div><strong>Liiku</strong><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span></div><div><strong>Katso ympärillesi</strong><span>Hiiri tai <kbd>←</kbd> <kbd>→</kbd></span></div><div><strong>Hyppää</strong><kbd>Välilyönti</kbd></div><div><strong>Vaihda kuvakulmaa</strong><kbd>V</kbd></div><div><strong>Juttele kyläläiselle</strong><kbd>T</kbd></div><div><strong>Musiikki päälle / pois</strong><kbd>M</kbd></div><div><strong>Tauko</strong><span><kbd>Esc</kbd> / <kbd>P</kbd></span></div></div><p class="note">Voit kääntää katsetta myös vetämällä näkymää. Kosketusnäytöllä liikut ja hyppäät ruudun painikkeilla. Napauta kyläläisen puhekuplaa, kun haluat jutella.</p><p class="note">Samalla nimellä löydät pehmosi ja sen parhaat rata-ajat tästä selaimesta.</p><div class="dialog-actions"><button class="primary" id="help-ok">Selvä!</button></div>',
+        '<div class="control-list"><div><strong>Liiku</strong><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span></div><div><strong>Katso ympärillesi</strong><span>Hiiri tai <kbd>←</kbd> <kbd>→</kbd></span></div><div><strong>Hyppää</strong><kbd>Välilyönti</kbd></div><div><strong>Vaihda kuvakulmaa</strong><kbd>V</kbd></div><div><strong>Juttele kyläläiselle</strong><kbd>T</kbd></div><div><strong>Musiikki päälle / pois</strong><kbd>M</kbd></div><div><strong>Tauko</strong><span><kbd>Esc</kbd> / <kbd>P</kbd></span></div></div>' +
+        '<p class="note touch-help">Vedä vasemmalla peukalolla ylös tai alas liikkuaksesi. Vedä sivulle kääntyäksesi ja vinoon tehdäksesi molemmat samalla. Napauta oikeaa puolta hypätäksesi tai pyyhkäise katsoaksesi ympärillesi. Toinen napautus ilmassa tekee pyörähdyshypyn.</p>' +
+        '<p class="note">Napauta kyläläisen puhekuplaa, kun haluat jutella. Samalla nimellä löydät pehmosi ja sen parhaat rata-ajat tästä selaimesta.</p><div class="dialog-actions"><button class="primary" id="help-ok">Selvä!</button></div>',
     );
     $('help-ok').onclick = close;
   };
@@ -1574,6 +1577,8 @@
     }
   }
   $('pause').onclick = () => game?.pause();
+  $('play-screen').addEventListener('contextmenu', (event) => event.preventDefault());
+  $('play-screen').addEventListener('dragstart', (event) => event.preventDefault());
   villageTalk.onclick = talkToVillager;
   $('world').addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || document.pointerLockElement !== game?.canvas || villageTalk.hidden)
@@ -1605,7 +1610,7 @@
   });
   document.addEventListener('click', (ev) => {
     const button = ev.target.closest('button');
-    if (button && !button.matches('#sound, #pause-sound, [data-group="ears"]')) sound.play('click');
+    if (button && !button.matches('#sound, #pause-sound, #touch-jump, [data-group="ears"]')) sound.play('click');
   });
   renderLobby();
   syncSound();

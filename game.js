@@ -222,7 +222,7 @@
     if (s.buffer > 0) s.queuedJump = true;
     s.buffer = 0.16;
   }
-  function tick(s, course, keys, dt) {
+  function tick(s, course, keys, touch, dt) {
     if (course.endless) {
       const shift = window.FluffEndless.advance(course, s.furthest);
       s.z -= shift;
@@ -249,12 +249,13 @@
     const turn =
       Number(keys.has('ArrowRight') || keys.has('KeyE')) -
       Number(keys.has('ArrowLeft') || keys.has('KeyQ'));
-    s.yaw += turn * 1.85 * dt;
+    s.yaw += (turn * 1.85 + touch.turn * 2.6) * dt;
     let forward =
       Number(keys.has('KeyW') || keys.has('ArrowUp')) -
-      Number(keys.has('KeyS') || keys.has('ArrowDown'));
+      Number(keys.has('KeyS') || keys.has('ArrowDown')) +
+      touch.forward;
     let side = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
-    const length = Math.hypot(forward, side) || 1;
+    const length = Math.max(1, Math.hypot(forward, side));
     forward /= length;
     side /= length;
     const sy = Math.sin(s.yaw),
@@ -445,10 +446,15 @@
       this.hooks = hooks;
       this.world = new window.FluffWorld(canvas);
       this.keys = new Set();
-      this.touchMoves = new Map();
       this.mode = 'idle';
       this.drag = null;
       this.frame = 0;
+      this.touch = new window.FluffTouchControls(
+        canvas,
+        () => this.mode === 'running',
+        (dx, dy, sensitivity) => this.look(dx, dy, sensitivity),
+        () => requestJump(this.state),
+      );
       window.addEventListener('keydown', (e) => this.key(e, true));
       window.addEventListener('keyup', (e) => this.key(e, false));
       document.addEventListener('mousemove', (e) => {
@@ -464,7 +470,7 @@
         }
       });
       canvas.addEventListener('pointerdown', (e) => {
-        if (this.mode !== 'running') return;
+        if (this.mode !== 'running' || e.pointerType === 'touch' || e.button !== 0) return;
         if (e.pointerType === 'mouse') this.capture();
         this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
         canvas.setPointerCapture(e.pointerId);
@@ -480,8 +486,8 @@
         this.drag.x = e.clientX;
         this.drag.y = e.clientY;
       });
-      canvas.addEventListener('lostpointercapture', () => {
-        this.drag = null;
+      canvas.addEventListener('lostpointercapture', (e) => {
+        if (this.drag?.id === e.pointerId) this.drag = null;
       });
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) this.pause();
@@ -492,21 +498,6 @@
         this.stop();
         this.hooks.error('3D-grafiikka keskeytyi. Lataa peli uudelleen jatkaaksesi.');
       });
-      for (const btn of document.querySelectorAll('[data-move],#touch-jump')) {
-        const move = btn.dataset.move;
-        btn.addEventListener('pointerdown', (e) => {
-          if (this.mode !== 'running') return;
-          e.preventDefault();
-          btn.setPointerCapture(e.pointerId);
-          if (move) this.touchMoves.set(e.pointerId, move);
-          else requestJump(this.state);
-        });
-        if (move) {
-          const releaseMove = (e) => this.touchMoves.delete(e.pointerId);
-          for (const event of ['pointerup', 'pointercancel', 'lostpointercapture'])
-            btn.addEventListener(event, releaseMove);
-        }
-      }
     }
     start(course, carry, owned = [], waitForArrival = false) {
       // A portal continues on the same canvas. Keep mouse capture during the handoff.
@@ -604,9 +595,9 @@
       if (down) this.keys.add(e.code);
       else this.keys.delete(e.code);
     }
-    look(dx, dy) {
-      this.state.yaw += dx * 0.0025;
-      this.state.pitch = Math.max(-1.15, Math.min(0.98, this.state.pitch - dy * 0.0023));
+    look(dx, dy, sensitivity = 0.0025) {
+      this.state.yaw += dx * sensitivity;
+      this.state.pitch = Math.max(-1.15, Math.min(0.98, this.state.pitch - dy * sensitivity * 0.92));
     }
     capture() {
       if (
@@ -622,7 +613,7 @@
     release() {
       window.FluffSound.setPlaying(false);
       this.keys.clear();
-      this.touchMoves.clear();
+      this.touch.clear();
       this.drag = null;
       this.locked = false;
       if (document.pointerLockElement === this.canvas) document.exitPointerLock();
@@ -636,7 +627,7 @@
     }
     resume() {
       this.keys.clear();
-      this.touchMoves.clear();
+      this.touch.clear();
       this.state.buffer = 0;
       this.state.queuedJump = false;
       this.mode = 'running';
@@ -665,12 +656,9 @@
       this.acc += Math.min((now - this.previous) / 1000, 0.12);
       this.previous = now;
       let outcome = null;
-      const keys = this.touchMoves.size
-        ? new Set([...this.keys, ...this.touchMoves.values()])
-        : this.keys;
       while (this.acc >= step && !outcome) {
         this.acc -= step;
-        const event = tick(this.state, this.course, keys, step);
+        const event = tick(this.state, this.course, this.keys, this.touch, step);
         if (event === 'checkpoint') {
           this.hooks.checkpoint(this.state.checkpoint);
         } else if (event === 'jump' || event === 'spin') {
@@ -684,6 +672,7 @@
       this.hooks.frame(this.state, pads);
       if (outcome === 'win') {
         this.mode = 'transferring';
+        this.touch.clear();
         this.hooks.end(outcome, this.state.finishTime);
       } else if (outcome) {
         this.mode = lostLife && this.state.lives > 0 ? 'recovering' : 'ended';
