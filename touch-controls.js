@@ -13,7 +13,6 @@
     constructor(canvas, running, look, jump) {
       this.stick = document.getElementById('touch-stick');
       this.jumpButton = document.getElementById('touch-jump');
-      this.primaryTouch = matchMedia('(pointer: coarse)');
       this.steering = null;
       this.looking = null;
       this.forward = 0;

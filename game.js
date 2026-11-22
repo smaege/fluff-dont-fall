@@ -10,22 +10,41 @@
     baseSpeed = 5.75,
     airAcceleration = 30,
     airDrag = 0.55,
-    manualLookPause = 1.25,
-    recenterDelay = 0.18;
+    routePitch = -0.18;
   function angleDifference(target, from) {
     const angle = target - from;
     return Math.atan2(Math.sin(angle), Math.cos(angle));
   }
-  function manualPan(state, angle) {
-    state.yaw += angle;
-    state.recenterHeading = null;
-    state.followAfter = state.time + manualLookPause;
-  }
-  function followYaw(state, target, rate, maxSpeed, dt) {
-    const angle = angleDifference(target, state.yaw);
-    if (Math.abs(angle) <= 0.025) return;
+  function approachAngle(from, target, rate, maxSpeed, dt) {
+    const angle = angleDifference(target, from);
     const rotation = angle * (1 - Math.exp(-rate * dt));
-    state.yaw += Math.max(-maxSpeed * dt, Math.min(maxSpeed * dt, rotation));
+    return from + Math.max(-maxSpeed * dt, Math.min(maxSpeed * dt, rotation));
+  }
+  function routeDirection(pads, index, z, landingX, landingZ) {
+    const pad = pads[index], next = pads[index + 1];
+    if (!pad || !next || pad.kind === 'stairs') return 0;
+    if (pad.kind === 'slide') {
+      const end = pad.z + pad.d / 2;
+      const here = Math.max(pad.z - pad.d / 2, Math.min(end, z));
+      const ahead = Math.min(end, here + 4);
+      const tangent = Math.atan2(rides.laneCenter(pad, ahead) - rides.laneCenter(pad, here), ahead - here);
+      const exit = Math.atan2(next.x - pad.x, next.z - end);
+      const blend = Math.max(0, 1 - (end - here) / 4);
+      return tangent + angleDifference(exit, tangent) * blend;
+    }
+    const entrance = next.kind === 'stairs' || next.kind === 'slide' ? next.z - next.d / 2 + 1.25 : next.z;
+    const end = pad.z + pad.d / 2;
+    const longApproach = pad.d >= 7.5 && entrance > end;
+    // Follow the length of large obstacle pads, then look across the next gap.
+    const across = longApproach ? Math.max(0, Math.min(1, 1 - (end - z) / 3.8)) : 1;
+    if (longApproach) return Math.atan2(next.x - pad.x, entrance - end + 2) * across;
+    const axis = Math.atan2(next.x - pad.x, entrance - pad.z);
+    const dx = next.x - pad.x - landingX, dz = entrance - pad.z - landingZ;
+    const along = dx * Math.sin(axis) + dz * Math.cos(axis);
+    const side = dx * Math.cos(axis) - dz * Math.sin(axis);
+    // Allow for an off-centre landing. Later side steps keep the same steering axes.
+    const correction = Math.atan2(side, Math.max(2.5, along));
+    return axis + Math.max(-0.26, Math.min(0.26, correction));
   }
   function speedMultiplier(course, furthest) {
     return course.endless ? 1 + 0.25 * Math.min(1, furthest / 72) : 1;
@@ -36,11 +55,14 @@
       y: 0,
       z: -1.35,
       yaw: 0,
-      followAfter: 0,
-      recenterHeading: null,
+      routeYaw: 0,
+      routePad: 0,
+      routeLandingX: 0,
+      routeLandingZ: -1.35,
+      airYaw: null,
       heading: 0,
       moving: false,
-      pitch: -0.18,
+      pitch: routePitch,
       vx: 0,
       vy: 0,
       vz: 0,
@@ -241,7 +263,7 @@
     if (s.buffer > 0) s.queuedJump = true;
     s.buffer = 0.16;
   }
-  function tick(s, course, keys, touch, dt) {
+  function tick(s, course, keys, touch, freeLook, dt) {
     if (course.endless) {
       const shift = window.FluffEndless.advance(course, s.furthest);
       s.z -= shift;
@@ -262,6 +284,11 @@
     updateSurfaces(s, course, pads, dt);
     const ground = s.grounded === null ? null : pads[s.grounded - offset];
     const onSlide = ground?.kind === 'slide';
+    if (ground && ground.index !== s.routePad) {
+      s.routePad = ground.index;
+      s.routeLandingX = s.x - ground.x;
+      s.routeLandingZ = s.z - ground.z;
+    }
     if (ground) {
       const [baseX, , , , , travel] = course.path[s.grounded - offset];
       if (travel) s.x += ground.x - (baseX + travel * Math.sin(before * 1.1 + s.grounded));
@@ -269,18 +296,24 @@
     const turn =
       Number(keys.has('ArrowRight') || keys.has('KeyE')) -
       Number(keys.has('ArrowLeft') || keys.has('KeyQ'));
-    if (turn) manualPan(s, turn * 1.85 * dt);
-    const keyForward =
+    const previousRouteYaw = s.routeYaw;
+    const targetYaw = routeDirection(pads, s.routePad - offset, s.z, s.routeLandingX, s.routeLandingZ);
+    s.routeYaw = approachAngle(previousRouteYaw, targetYaw, 13, 4.6, dt);
+    if (turn) s.yaw += turn * 1.85 * dt;
+    else if (!freeLook) {
+      // Carry the camera with the route while smoothing out the remaining free-look offset.
+      s.yaw = approachAngle(s.yaw + s.routeYaw - previousRouteYaw, s.routeYaw, 9, 4.3, dt);
+      s.pitch += (routePitch - s.pitch) * (1 - Math.exp(-8 * dt));
+    }
+    const forward =
       Number(keys.has('KeyW') || keys.has('ArrowUp')) -
-      Number(keys.has('KeyS') || keys.has('ArrowDown'));
-    const keySide = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
-    const stickActive = Boolean(touch.forward || touch.side);
-    const forward = keyForward + touch.forward;
-    const side = keySide + touch.side;
+      Number(keys.has('KeyS') || keys.has('ArrowDown')) + touch.forward;
+    const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.side;
     const moveLength = Math.hypot(forward, side);
-    if (touch.looking?.dragged) s.followAfter = s.time + manualLookPause;
-    const sy = Math.sin(s.yaw),
-      cy = Math.cos(s.yaw);
+    // Joystick and keys are relative to the route. The take-off axes stay fixed in the air.
+    const moveYaw = s.airYaw ?? s.routeYaw;
+    const sy = Math.sin(moveYaw),
+      cy = Math.cos(moveYaw);
     const pace = speedMultiplier(course, s.furthest);
     const speed = baseSpeed * pace / Math.max(1, moveLength);
     let vx = (forward * sy + side * cy) * speed,
@@ -319,27 +352,8 @@
       vx = vx * 0.76 + (rides.laneCenter(ground, nextZ) - rides.laneCenter(ground, s.z)) / dt;
     } else s.slideSpeed = 0;
     s.moving = Math.hypot(vx, vz) > 0.03;
-    const heading = s.moving ? Math.atan2(vx, vz) : s.heading;
-    if (s.moving) s.heading += angleDifference(heading, s.heading) * (1 - Math.exp(-14 * dt));
-    if (onSlide || keyForward || keySide) s.recenterHeading = null;
-    else if (ground && stickActive && !touch.looking?.dragged) {
-      const intentionalStride = touch.forward > 0.5 && Math.abs(touch.side) < touch.forward * 0.7;
-      s.recenterHeading = intentionalStride ? heading : null;
-    }
-    // Movement always uses the visible camera axes. Only turn automatically during a pause.
-    if (stickActive || keyForward || keySide || !ground || onSlide || s.buffer) {
-      s.followAfter = Math.max(s.followAfter, s.time + recenterDelay);
-    } else if (s.time >= s.followAfter) {
-      const next = course.tower && (touch.primaryTouch.matches || touch.steering)
-        ? pads[ground.index - offset + 1]
-        : null;
-      if (next && !next.gone) {
-        const z = next.kind === 'slide' ? next.z - next.d / 2 + 1.25 : next.z;
-        followYaw(s, Math.atan2(next.x - s.x, z - s.z), 7, 2.8, dt);
-      } else if (s.recenterHeading !== null) {
-        followYaw(s, s.recenterHeading, 3.5, 1.1, dt);
-      }
-    }
+    if (s.moving)
+      s.heading += angleDifference(Math.atan2(vx, vz), s.heading) * (1 - Math.exp(-14 * dt));
     const wind = ground?.kind === 'gust' ? window.FluffGust.wind(ground, s.time) : 0;
     s.z += vz * dt;
     s.x += (vx + wind) * dt;
@@ -409,6 +423,7 @@
       s.sliding = false;
       if (ground) {
         // Carry the actual launch velocity, including the cushion's motion, into the air.
+        s.airYaw = moveYaw;
         s.vx = (s.x - previousX) / dt;
         s.vz = (s.z - previousZ) / dt;
       }
@@ -438,6 +453,7 @@
             s.landAt = s.time;
             if (p.kind) landOnSurface(s, p);
             s.grounded = p.index;
+            s.airYaw = null;
             s.airJumpReady = false;
             s.furthest = Math.max(s.furthest, p.index);
             s.y = height;
@@ -523,7 +539,7 @@
       window.addEventListener('keydown', (e) => this.key(e, true));
       window.addEventListener('keyup', (e) => this.key(e, false));
       document.addEventListener('mousemove', (e) => {
-        if (this.mode === 'running' && document.pointerLockElement === canvas)
+        if (this.mode === 'running' && this.drag && document.pointerLockElement === canvas)
           this.look(e.movementX, e.movementY);
       });
       document.addEventListener('pointerlockchange', () => {
@@ -536,9 +552,11 @@
       });
       canvas.addEventListener('pointerdown', (e) => {
         if (this.mode !== 'running' || e.pointerType === 'touch' || e.button !== 0) return;
-        if (e.pointerType === 'mouse') this.capture();
         this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
-        canvas.setPointerCapture(e.pointerId);
+        if (document.pointerLockElement !== canvas) {
+          canvas.setPointerCapture(e.pointerId);
+          if (e.pointerType === 'mouse') this.capture();
+        }
       });
       canvas.addEventListener('pointermove', (e) => {
         if (
@@ -551,9 +569,11 @@
         this.drag.x = e.clientX;
         this.drag.y = e.clientY;
       });
-      canvas.addEventListener('lostpointercapture', (e) => {
-        if (this.drag?.id === e.pointerId) this.drag = null;
-      });
+      for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        canvas.addEventListener(event, (e) => {
+          if (this.drag?.id === e.pointerId) this.drag = null;
+        });
+      }
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) this.pause();
       });
@@ -585,6 +605,8 @@
         this.state.lifeGoal = endlessFirstLife;
         window.FluffEndless.advance(this.course, 0);
       }
+      const yaw = routeDirection(api.platforms(this.course, 0), 0, this.state.z, 0, this.state.z);
+      this.state.routeYaw = this.state.yaw = this.state.heading = yaw;
       this.world.setup(this.course);
       window.FluffSound.setCourse(course.id);
       if (waitForArrival) {
@@ -600,14 +622,17 @@
       const pads = api.platforms(this.course, time);
       const index = finishTime === null ? checkpoint - (this.course.firstIndex || 0) : pads.length - 1;
       const pad = pads[index];
-      const next = pads[index + 1];
-      const yaw = next ? Math.atan2(next.x - pad.x, next.z - pad.z) : 0;
+      const landingZ = pad.index ? 0 : -1.35;
+      const yaw = routeDirection(pads, index, pad.z + landingZ, 0, landingZ);
       this.state = {
         ...spawn(),
         x: pad.x,
         y: pad.y,
-        z: pad.index ? pad.z : pad.z - 1.35,
+        z: pad.z + landingZ,
         yaw,
+        routeYaw: yaw,
+        routePad: pad.index,
+        routeLandingZ: landingZ,
         heading: yaw,
         grounded: pad.index,
         furthest: this.course.endless ? furthest : pad.index,
@@ -661,7 +686,7 @@
       else this.keys.delete(e.code);
     }
     look(dx, dy, sensitivity = 0.0025) {
-      if (dx || dy) manualPan(this.state, dx * sensitivity);
+      this.state.yaw += dx * sensitivity;
       this.state.pitch = Math.max(-1.15, Math.min(0.98, this.state.pitch - dy * sensitivity * 0.92));
     }
     capture() {
@@ -723,7 +748,8 @@
       let outcome = null;
       while (this.acc >= step && !outcome) {
         this.acc -= step;
-        const event = tick(this.state, this.course, this.keys, this.touch, step);
+        const freeLook = this.drag || this.touch.looking?.dragged;
+        const event = tick(this.state, this.course, this.keys, this.touch, freeLook, step);
         if (event === 'checkpoint') {
           this.hooks.checkpoint(this.state.checkpoint);
         } else if (event === 'jump' || event === 'spin') {

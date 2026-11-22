@@ -144,6 +144,47 @@ test('two thumbs can steer, look and jump in both phone orientations', async (t)
   assert.equal(await page.evaluate(() => window.testGame.state.grounded), 1);
 });
 
+test('mouse movement only looks around while the left button is held', async (t) => {
+  const page = await openGame(t);
+  await page.evaluate(() => FluffProfiles.open('Tassu'));
+  await page.reload();
+  await page.evaluate(() => {
+    const Game = window.FluffGame;
+    window.FluffGame = class extends Game {
+      constructor(...args) {
+        super(...args);
+        window.testGame = this;
+      }
+    };
+  });
+  await page.locator('#lobby-profile-list button').click();
+  await page.locator('[data-course="cloud"]').click();
+  await page.locator('#launch').click();
+  const step = (frames) => page.evaluate(frames => {
+    const game = window.testGame;
+    cancelAnimationFrame(game.frame);
+    for (let i = 0; i < frames; i++) {
+      game.loop(game.previous + 100);
+      cancelAnimationFrame(game.frame);
+    }
+    return game.state.yaw - game.state.routeYaw;
+  }, frames);
+  const initial = await step(1);
+  await page.mouse.move(480, 420);
+  assert.equal(await step(1), initial);
+  await page.mouse.down();
+  await page.waitForFunction(() => window.testGame.drag !== null);
+  await page.mouse.move(670, 460);
+  const offset = await step(2);
+  assert.ok(Math.abs(offset) > 0.15);
+  assert.equal(await step(2), offset);
+  await page.mouse.up();
+  await page.waitForFunction(() => window.testGame.drag === null);
+  const returning = await step(1);
+  assert.ok(Math.abs(returning) < Math.abs(offset));
+  assert.ok(Math.abs(await step(6)) < 0.01);
+});
+
 test('old and newly collected gifts can be equipped and saved by their owner', async (t) => {
   const page = await openGame(t);
   await page.evaluate(() => {

@@ -270,7 +270,7 @@ test('a deflected touch stick and an airborne plush keep the current camera axis
   assert.ok(Math.abs(Math.atan2(game.state.vx, game.state.vz) - game.state.yaw) < 1e-10);
 });
 
-test('manual look takes priority over touch follow and desktop strafing keeps its camera', () => {
+test('free look holds the view, leaves steering on the route, and eases back on release', () => {
   const { game, advance, place, press, touch } = startGame();
   const { state } = game;
   game.course.path = [[0, 0, 0, 50, 50], [0, 100, 0, 5, 5]];
@@ -285,21 +285,20 @@ test('manual look takes priority over touch follow and desktop strafing keeps it
   assert.ok(state.x > 1);
 
   touch('pointerdown', 1, 75, 240);
-  touch('pointermove', 1, 93, 195);
+  touch('pointermove', 1, 75, 192);
   advance(12);
   touch('pointerdown', 2, 325, 240, 330);
   touch('pointermove', 2, 292, 255, 390);
   const aimed = state.yaw;
-  advance(116);
+  advance(35);
   assert.equal(state.yaw, aimed);
+  assert.ok(state.vz > 5 && Math.abs(state.vx) < 1e-9);
   touch('pointerup', 2, 292, 255, 1400);
-  advance(155);
-  assert.equal(state.yaw, aimed);
-  touch('pointermove', 1, 75, 240);
-  advance(10);
-  assert.equal(state.yaw, aimed);
-  advance(45);
-  assert.ok(state.yaw > aimed);
+  advance(1);
+  assert.ok(state.yaw > aimed && state.yaw < 0);
+  advance(65);
+  assert.ok(Math.abs(state.yaw) < 0.002);
+  assert.ok(state.vz > 5 && Math.abs(state.vx) < 1e-9);
 });
 
 test('the jump button responds immediately and centring the held stick brakes in midair', () => {
@@ -416,8 +415,6 @@ test('every new slide can be ridden from its checkpoint and jumped from the run-
     assert.ok(rode && game.state.z > end - 0.5, id);
     assert.equal(game.state.grounded, slide.index, id);
     assert.ok(game.state.sliding && game.state.vz > 4, id);
-    const landingYaw = Math.atan2(after.x - game.state.x, after.z - game.state.z);
-    game.look(landingYaw - game.state.yaw, 0, 1);
     touch('pointerdown', 2, 320, 250, 100);
     touch('pointerup', 2, 320, 250, 170);
     for (let frame = 0; frame < 125 && game.state.grounded !== after.index; frame++) advance(1);
@@ -449,7 +446,7 @@ test('the tower is a continuous climb around two turns, with a solid wall below 
     const yaw = Math.atan2(to.x - from.x, to.z - from.z);
     const runUp = from === bridge ? 0.08 : 1.2;
     place(from, from.x + Math.sin(yaw) * runUp, from.z + Math.cos(yaw) * runUp);
-    game.state.yaw = yaw;
+    game.state.yaw = game.state.routeYaw = yaw;
     press('KeyW', true);
     tap();
     for (let frame = 0; frame < 118 && game.state.grounded !== to.index; frame++) advance(1);
@@ -457,38 +454,55 @@ test('the tower is a continuous climb around two turns, with a solid wall below 
   }
 });
 
-test('pausing the touch stick lines up tower jumps without changing direction while steering', () => {
+test('the tower camera leads consecutive jumps with the same held stick', () => {
   const { game, pads, place, advance, touch, jump } = startGame('tower');
   game.course.hazards = [];
   place(pads[2]);
-  touch('pointerdown', 1, 75, 240);
-  touch('pointermove', 1, 75, 192);
-  advance(4);
-  assert.equal(game.state.yaw, 0);
-  assert.ok(Math.abs(game.state.vx) < 1e-10 && game.state.vz > 5);
-  touch('pointermove', 1, 75, 240);
-  advance(90);
+  advance(85);
   const ahead = Math.atan2(pads[3].x - pads[2].x, pads[3].z - pads[2].z);
   assert.ok(Math.abs(game.state.yaw - ahead) < 0.08);
-  // Climb one turn by centring the stick on each landing before the next jump.
+  touch('pointerdown', 1, 75, 240);
+  touch('pointermove', 1, 75, 192);
+  // Climb a full turn with no manual panning or pause after landing.
   for (let index = 2; index < 17; index++) {
     const next = pads[index + 1];
     const distance = () => Math.hypot(next.x - game.state.x, next.z - game.state.z);
-    const yaw = game.state.yaw;
-    touch('pointermove', 1, 75, 192);
     for (let frame = 0; frame < 70 && distance() > 3.6; frame++) advance(1);
     assert.equal(game.state.grounded, index);
     assert.ok(distance() <= 3.6);
-    assert.equal(game.state.yaw, yaw);
+    const { routeYaw } = game.state;
     touch('pointerdown', 2, 355, 244, 0, jump);
     touch('pointerup', 2, 355, 244, 30, jump);
+    advance(1);
+    assert.ok(Math.abs(game.state.airYaw - routeYaw) < 0.04);
     for (let frame = 0; frame < 110 && game.state.grounded !== next.index; frame++) advance(1);
     assert.equal(game.state.grounded, next.index, `tower cushion ${next.index}`);
-    assert.equal(game.state.yaw, yaw);
-    touch('pointermove', 1, 75, 240);
-    advance(70);
+    assert.equal(game.state.airYaw, null);
   }
   assert.equal(game.state.lives, 3);
+});
+
+test('all courses keep the next landing ahead while the player moves sideways', () => {
+  const angleBetween = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const { courses, endless } = startGame();
+  for (const route of [...courses.all, endless.course]) {
+    const { game, place, advance, touch } = startGame(route.id);
+    game.course.hazards = [];
+    const pads = game.draw();
+    const from = pads.find((pad, index) => {
+      const next = pads[index + 1];
+      return next && !pad.kind && !next.kind && pad.d < 7.5 && Math.abs(next.x - pad.x) > 0.5;
+    });
+    const to = pads[from.index + 1];
+    const direction = Math.atan2(to.x - from.x, to.z - from.z);
+    place(from);
+    touch('pointerdown', 1, 75, 240);
+    touch('pointermove', 1, 95, 240);
+    advance(80);
+    assert.equal(game.state.grounded, from.index, route.id);
+    assert.ok(angleBetween(game.state.yaw, direction) < 0.12, route.id);
+    assert.ok(angleBetween(Math.atan2(game.state.vx, game.state.vz), direction + Math.PI / 2) < 0.12, route.id);
+  }
 });
 
 test('the tower slide carries a rider from the roof to the portal terrace without a jump', () => {
@@ -1076,6 +1090,7 @@ test('nearby animals sound in their visible movement phase and pan toward the so
       run.game.course.path[1][0] = 2.7;
       const pads = run.game.draw();
       run.place(pads[0]);
+      run.canvas.dispatch('pointerdown', { pointerType: 'mouse', pointerId: 10, button: 0, clientX: 200, clientY: 200 });
       run.game.state.yaw = yaw;
       run.advance(720);
       for (const cue of run.effects) {
@@ -1220,6 +1235,7 @@ test('Pilvivaellus rebasing preserves a nearby rope’s audio phase and position
     game.course.path[21] = [1.1, z + 4.3, 0, 4.4, 5];
     game.course.hazards = [{ at: 21, type: 'jumpRope' }];
     place(game.draw()[20]);
+    game.state.yaw = game.state.routeYaw = Math.atan2(1.1, 4.3);
     advance(72);
     if (rebase) game.state.furthest = 24;
     advance(600);
