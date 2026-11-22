@@ -93,10 +93,10 @@
   }
 
   function contains(style, dx, dz, width, depth) {
-    if (!style) return Math.abs(dx) <= width / 2 && Math.abs(dz) <= depth / 2;
+    if (Math.abs(dx) > width / 2 || Math.abs(dz) > depth / 2) return false;
     const x = dx / width,
       z = dz / depth;
-    const outline = contours[style.shape];
+    const outline = contours[style?.shape ?? 'rectangle'];
     const segment = Math.floor(((Math.atan2(z, x) + tau) * segments) / tau) % segments;
     const [x1, z1] = outline[segment];
     const [x2, z2] = outline[(segment + 1) % segments];

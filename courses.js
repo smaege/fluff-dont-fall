@@ -906,6 +906,14 @@
     if (pad.kind === 'stairs' || pad.kind === 'slide') return window.FluffSkyRides.height(pad, x, z);
     return pad.y + (x - pad.x) * (pad.slopeX || 0) + (z - pad.z) * (pad.slopeZ || 0);
   }
+  function containsSurface(pad, x, z, margin = 0) {
+    const rides = window.FluffSkyRides;
+    if (pad.kind === 'stairs' || pad.kind === 'slide') {
+      return Math.abs(z - pad.z) <= pad.d / 2 + margin &&
+        Math.abs(x - rides.laneCenter(pad, z)) <= pad.w / 2 + margin;
+    }
+    return window.FluffPadStyles.contains(pad.style, x - pad.x, z - pad.z, pad.w + 2 * margin, pad.d + 2 * margin);
+  }
   function platforms(course, time) {
     const offset = course.firstIndex || 0;
     return course.path.map(([x, z, y, w, d, travel = 0, kind = null, slide], i) => ({
@@ -998,6 +1006,7 @@
     hazards,
     challenge,
     surfaceHeight,
+    containsSurface,
     giftPosition,
     nextCourse,
     finishPortal,

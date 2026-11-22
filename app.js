@@ -914,7 +914,7 @@
     thirdPerson = !thirdPerson;
     if (game) {
       game.world.thirdPerson = thirdPerson;
-      game.world.cameraY = null;
+      game.world.resetCamera();
     }
     try {
       localStorage.setItem('fluff-camera', thirdPerson ? 'follow' : 'eyes');

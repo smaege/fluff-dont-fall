@@ -41,6 +41,9 @@
         fog: { value: new three.Vector3() },
         sceneTime: { value: 0 },
         slideSparkleTime: { value: 0 },
+        shadowCenter: { value: new three.Vector3() },
+        shadowShape: { value: new three.Vector3() },
+        shadowSlope: { value: new three.Vector2() },
       };
       for (const [name, tile] of Object.entries(tiles)) {
         const texture = new three.CanvasTexture(tile);
@@ -100,7 +103,7 @@
       group.mesh = mesh;
     }
 
-    render(view, fog, time, slideSparkleTime) {
+    render(view, fog, time, slideSparkleTime, shadow) {
       let count = 0;
       for (const group of this.groups.values()) {
         const length = group.items.length;
@@ -139,6 +142,9 @@
       u.fog.value.fromArray(fog);
       u.sceneTime.value = time;
       u.slideSparkleTime.value = slideSparkleTime;
+      u.shadowCenter.value.fromArray(shadow.center);
+      u.shadowShape.value.fromArray(shadow.shape);
+      u.shadowSlope.value.fromArray(shadow.slope);
       this.renderer.resetState();
       this.renderer.render(this.scene, this.camera);
       return true;

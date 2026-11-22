@@ -301,6 +301,24 @@ test('free look holds the view, leaves steering on the route, and eases back on 
   assert.ok(state.vz > 5 && Math.abs(state.vx) < 1e-9);
 });
 
+test('first-person route turns build up speed without delaying steering', () => {
+  const eyes = startGame('tower');
+  const follow = startGame('tower');
+  follow.game.world.thirdPerson = true;
+  for (const run of [eyes, follow]) {
+    run.place(run.pads[2]);
+    run.advance(1);
+  }
+  const first = eyes.game.state.yaw;
+  assert.ok(first > 0 && first < 0.005 && eyes.game.state.routeYaw > 0.03);
+  eyes.advance(26);
+  follow.advance(26);
+  assert.ok(eyes.game.state.yaw > 0.2 && eyes.game.state.yaw < follow.game.state.yaw);
+  assert.equal(eyes.game.state.routeYaw, follow.game.state.routeYaw);
+  eyes.advance(105);
+  assert.ok(Math.abs(eyes.game.state.yaw - eyes.game.state.routeYaw) < 0.005);
+});
+
 test('the jump button responds immediately and centring the held stick brakes in midair', () => {
   const { game, advance, touch, jump } = startGame();
   const { state } = game;
@@ -361,6 +379,47 @@ test('a coyote jump keeps the speed from stepping off an edge', () => {
   assert.ok(game.state.y > 0.7);
   assert.equal(game.state.spinAt, -1);
   assert.equal(game.state.airJumpReady, true);
+});
+
+test('walking crosses a narrow raised seam while a real gap still needs a jump', () => {
+  for (const [spacing, joined] of [[4.07, true], [4.65, false]]) {
+    const { game, place, press, advance } = startGame();
+    Object.assign(game.course, {
+      path: [[0, 0, 0, 4, 4], [0, spacing, 0.14, 4, 4], [0, 12, 0.14, 4, 4]],
+      checkpoints: [], stars: [], gifts: [], hazards: [],
+    });
+    place(game.draw()[0], 0, 1.96);
+    press('KeyW', true);
+    for (let frame = 0; frame < 9 && game.state.grounded === 0; frame++) advance(1);
+    assert.equal(game.state.grounded, joined ? 1 : null);
+    if (joined) assert.equal(game.state.y, 0.14);
+  }
+});
+
+test('a fast descent catches the platform crossed before the end of the physics step', () => {
+  const { game, advance } = startGame();
+  Object.assign(game.course, {
+    path: [[0, 0, 0, 4, 3], [0, 4, 1, 4, 3], [0, 12, 1, 4, 3]],
+    checkpoints: [], stars: [], gifts: [], hazards: [],
+  });
+  Object.assign(game.state, { x: 0, y: 1.004, z: 5.48, grounded: null, vy: -5, vz: 12 });
+  advance(1);
+  assert.equal(game.state.grounded, 1);
+  assert.ok(game.state.z > 5.48 && game.state.z < 5.5);
+  assert.equal(game.state.y, 1);
+});
+
+test('a descending plush catches a tilted pad while moving up its slope', () => {
+  const { game, advance } = startGame();
+  Object.assign(game.course, {
+    path: [[0, 0, 0, 4, 3], [0, 4, 1, 4, 3, 0, 'tilt'], [0, 12, 1, 4, 3]],
+    checkpoints: [], stars: [], gifts: [], hazards: [],
+  });
+  game.state.surfaces.set(1, { slopeX: 0.6, slopeZ: 0, rateX: 0, rateZ: 0, impactAt: 0, impact: 0 });
+  Object.assign(game.state, { x: 0, y: 1.02, z: 4, grounded: null, vy: -2, vx: 12 });
+  advance(1);
+  assert.equal(game.state.grounded, 1);
+  assert.ok(game.state.y > 1.04);
 });
 
 test('jumping from the slide carries the slide speed into the air', () => {

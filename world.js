@@ -8,6 +8,31 @@
   const flatPlane = [0, 0, 0];
   const unitSize = [1, 1, 1];
   const padHeight = window.FluffCourses.surfaceHeight;
+  const noShadow = { center: [0, 0, 0], shape: [1, 1, 0], slope: [0, 0] };
+  function playerShadow({ x, y, z, time }, pads) {
+    let floor = -Infinity, receiver;
+    for (const pad of pads) {
+      if (pad.gone || !window.FluffCourses.containsSurface(pad, x, z, 0.45)) continue;
+      if (pad.kind === 'stairs' && window.FluffSkyRides.dropped(pad, z, time)) continue;
+      const height = padHeight(pad, x, z);
+      if (height <= y + 0.02 && height > floor) {
+        floor = height;
+        receiver = pad;
+      }
+    }
+    const gap = Math.max(0, y - floor);
+    if (!receiver || gap > 4.4) return noShadow;
+    let slope = [receiver.slopeX || 0, receiver.slopeZ || 0];
+    if (receiver.kind === 'slide') {
+      slope = [
+        (padHeight(receiver, x + 0.02, z) - padHeight(receiver, x - 0.02, z)) / 0.04,
+        (padHeight(receiver, x, z + 0.02) - padHeight(receiver, x, z - 0.02)) / 0.04,
+      ];
+    }
+    const spread = 1 + 0.26 * gap;
+    const opacity = 0.34 * Math.exp(-0.52 * gap) * clamp((4.4 - gap) / 1.2, 0, 1);
+    return { center: [x, floor, z], shape: [0.82 * spread, 0.63 * spread, opacity], slope };
+  }
   const vertex = `
     attribute vec3 position, normal;
     uniform vec3 loc, size, camera, rightDir, upDir, forwardDir;
@@ -83,7 +108,20 @@
     uniform float sceneTime, slideSparkleTime;
     uniform vec2 portalMotion;
     uniform vec3 portalAccent;
+    uniform vec3 shadowCenter,shadowShape;
+    uniform vec2 shadowSlope;
     float hash(vec2 p){return fract(sin(dot(p,vec2(41.71,289.33)))*4375.76);}
+    float playerShade(float up){
+      if(shadowShape.z<=0.) return 1.;
+      vec2 offset=vPos.xz-shadowCenter.xz;
+      vec2 q=offset/shadowShape.xy;
+      float radius=dot(q,q);
+      if(radius>=1.) return 1.;
+      float height=shadowCenter.y+dot(offset,shadowSlope);
+      float receiver=1.-smoothstep(.12,.36,abs(vPos.y-height));
+      float penumbra=exp(-3.8*radius)*(1.-smoothstep(.55,1.,radius));
+      return 1.-shadowShape.z*receiver*penumbra*smoothstep(.20,.8,up);
+    }
     void main(){
       ${window.FluffPetalRain.fragment}
       if(material== -18.){
@@ -182,7 +220,7 @@
         fabric=mix(fabric,thread*light,piping*(.71+.15*nap));
         fabric=mix(fabric,thread*(light+.12),stitch*.92*detail);
         float haze=1.-exp(-max(0.,vDepth-7.)*.011);
-        gl_FragColor=vec4(mix(fabric,fog,min(haze,.87)),1.);
+        gl_FragColor=vec4(mix(fabric*playerShade(n.y),fog,min(haze,.87)),1.);
         return;
       }
       if(material== -21.){
@@ -543,6 +581,7 @@
         float thread=.91+.09*smoothstep(-.6,.45,sin((p.x+p.y*.72)*330.));
         col=mix(col,vec3(1.,.985,.86)*thread,paw);
       }
+      if(material>8.5 && material<=10.5) col*=playerShade(n.y);
       gl_FragColor=vec4(mix(col,fog,min(haze,badge?.33:.87)),1.);
     }`;
   function roundedBox() {
@@ -1708,6 +1747,9 @@
         'slideSparkleTime',
         'portalMotion',
         'portalAccent',
+        'shadowCenter',
+        'shadowShape',
+        'shadowSlope',
       ])
         this.u[name] = gl.getUniformLocation(program, name);
       gl.uniformMatrix3fv(this.u.modelBasis, false, identity);
@@ -1803,12 +1845,16 @@
       this.props = course.endless ? [] : scenery(course);
       this.skyRoutes = course.endless ? null : window.FluffSkyBalloons.fixedRoutes(course);
       this.skySectors = new Map();
-      this.cameraY = null;
-      this.lastCameraTime = null;
+      this.resetCamera();
       const sky = 'linear-gradient(' + course.sky.join(',') + ')';
       const sunbeams =
         'repeating-conic-gradient(from 103deg at 71% -40%, transparent 0 9deg, #eefbe522 12deg, transparent 17deg 31deg)';
       this.canvas.parentElement.style.background = course.id === 'reef' ? sunbeams + ', ' + sky : sky;
+    }
+    resetCamera() {
+      this.cameraY = null;
+      this.cameraArm = null;
+      this.lastCameraTime = null;
     }
     draw(mesh, p, s, c, rot = 0, mat = 0) {
       const gl = this.gl,
@@ -2229,7 +2275,10 @@
       const forward = [sy * cp, sp, cy * cp],
         right = [cy, 0, -sy],
         up = [-sy * sp, cp, -cy * sp];
-      let camera = [x, y + 1.36, z];
+      const elapsed = this.lastCameraTime === null ? 1 : clamp(time - this.lastCameraTime, 0, 0.16);
+      const heightResponse = this.thirdPerson ? 12 : 23;
+      this.cameraY = this.cameraY === null ? y : this.cameraY + (y - this.cameraY) * (1 - Math.exp(-heightResponse * elapsed));
+      let camera = [x, clamp(this.cameraY, y - 0.22, y + 0.22) + 1.36, z];
       if (focus) {
         const depth = focalY / focus.scale;
         camera = focus.speaker.face.map(
@@ -2237,14 +2286,15 @@
         );
       } else if (this.thirdPerson) {
         // The raised follow point keeps the landing area visible above the plush.
-        const elapsed = this.lastCameraTime === null ? 1 : clamp(time - this.lastCameraTime, 0, 0.16);
-        this.cameraY =
-          this.cameraY === null ? y : this.cameraY + (y - this.cameraY) * (1 - Math.exp(-12 * elapsed));
         const anchor = [x + 0.5 * sy, clamp(this.cameraY, y - 0.45, y + 0.45) + 1.58, z + 0.5 * cy];
         let arm = followDistance(anchor, forward, pads, hazards, time);
         if (course.tower) arm = towerCameraDistance(anchor, forward, arm, course.tower);
-        camera = anchor.map((v, i) => v - arm * forward[i]);
-      } else this.cameraY = null;
+        // Pull closer on obstruction; ease back out when the view clears.
+        this.cameraArm = this.cameraArm === null || arm <= this.cameraArm
+          ? arm
+          : this.cameraArm + (arm - this.cameraArm) * (1 - Math.exp(-10 * elapsed));
+        camera = anchor.map((v, i) => v - this.cameraArm * forward[i]);
+      }
       this.view = { camera, right, up, forward, width, height, focalX, focalY, lensX, lensY };
       this.lastCameraTime = time;
       gl.uniform3fv(u.camera, camera);
@@ -2253,6 +2303,10 @@
       gl.uniform3fv(u.forwardDir, forward);
       gl.uniform2f(u.lens, lensX, lensY);
       gl.uniform3fv(u.fog, rgb(course.fog));
+      const shadow = focus ? noShadow : playerShadow(state, pads);
+      gl.uniform3fv(u.shadowCenter, shadow.center);
+      gl.uniform3fv(u.shadowShape, shadow.shape);
+      gl.uniform2fv(u.shadowSlope, shadow.slope);
       this.clouds.length = 0;
       gl.uniform1f(u.sceneTime, time);
       const slideSparkleTime = this.reducedMotion?.matches ? 0 : time;
@@ -2339,7 +2393,7 @@
           this.drawPortal(portal, state);
         }
       }
-      if (this.batches?.render(this.view, this.colors.get(course.fog), time, slideSparkleTime)) this.restoreRawState();
+      if (this.batches?.render(this.view, this.colors.get(course.fog), time, slideSparkleTime, shadow)) this.restoreRawState();
       const hazardColor = course.id === 'night' ? '#b982c2' : '#e27895';
       for (const h of hazards) {
         const pad = pads[h.at - (course.firstIndex || 0)];
@@ -2405,27 +2459,6 @@
             );
           }
         }
-      }
-      if (!focus && (state.grounded === null || this.thirdPerson)) {
-        for (const p of pads)
-          if (
-            !p.gone &&
-            Math.abs(x - (p.kind === 'slide' ? window.FluffSkyRides.laneCenter(p, z) : p.x)) <
-              p.w * 0.49 &&
-            Math.abs(z - p.z) < p.d * 0.49 &&
-            (!p.style || window.FluffPadStyles.contains(p.style, x - p.x, z - p.z, p.w, p.d)) &&
-            (p.kind !== 'stairs' || !window.FluffSkyRides.dropped(p, z, time)) &&
-            y >= padHeight(p, x, z) - 0.006
-          ) {
-            this.drawPadShadow(
-              p,
-              x,
-              z,
-              this.thirdPerson ? [0.93, 0.014, 0.65] : [0.41, 0.014, 0.36],
-              '#baa8b7',
-            );
-            break;
-          }
       }
       this.drawStars(state, pads);
       this.drawGifts(state, pads);

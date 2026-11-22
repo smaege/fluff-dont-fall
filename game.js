@@ -20,6 +20,12 @@
     const rotation = angle * (1 - Math.exp(-rate * dt));
     return from + Math.max(-maxSpeed * dt, Math.min(maxSpeed * dt, rotation));
   }
+  function springCamera(from, velocity, target, response, dt) {
+    const error = from - target;
+    const impulse = velocity + response * error;
+    const decay = Math.exp(-response * dt);
+    return [target + (error + impulse * dt) * decay, (velocity - response * impulse * dt) * decay];
+  }
   function routeDirection(pads, index, z, landingX, landingZ) {
     const pad = pads[index], next = pads[index + 1];
     if (!pad || !next || pad.kind === 'stairs') return 0;
@@ -55,6 +61,7 @@
       y: 0,
       z: -1.35,
       yaw: 0,
+      yawVelocity: 0,
       routeYaw: 0,
       routePad: 0,
       routeLandingX: 0,
@@ -63,6 +70,7 @@
       heading: 0,
       moving: false,
       pitch: routePitch,
+      pitchVelocity: 0,
       vx: 0,
       vy: 0,
       vz: 0,
@@ -95,16 +103,64 @@
       encounterAudio: new window.FluffEncounterAudio(),
     };
   }
-  function onPad(pad, x, z) {
-    if (pad.style) return window.FluffPadStyles.contains(pad.style, x - pad.x, z - pad.z, pad.w, pad.d);
-    if (pad.kind === 'slide')
-      return Math.abs(x - rides.laneCenter(pad, z)) <= pad.w / 2 && Math.abs(z - pad.z) <= pad.d / 2;
-    const dx = Math.abs(x - pad.x),
-      dz = Math.abs(z - pad.z);
-    // Keep the standing surface inside the cushion's rounded corners.
-    return (
-      dx <= pad.w * 0.5 + 0.045 && dz <= pad.d * 0.5 + 0.045 && dx + dz < (pad.w + pad.d) * 0.5 - 0.12
-    );
+  function supports(pad, x, z, time, margin = 0) {
+    return pad && !pad.gone && api.containsSurface(pad, x, z, margin) &&
+      (pad.kind !== 'stairs' || !rides.dropped(pad, z, time));
+  }
+  function joinNeighbour(pad, pads, offset, s) {
+    // Close only narrow seams between adjacent, nearly level surfaces.
+    if (!api.containsSurface(pad, s.x, s.z, 0.13)) return null;
+    for (const index of [pad.index + 1, pad.index - 1]) {
+      const next = pads[index - offset];
+      if (!supports(next, s.x, s.z, s.time, 0.065)) continue;
+      const rise = api.surfaceHeight(next, s.x, s.z) - s.y;
+      if (rise >= -0.22 && rise <= 0.19) return next;
+    }
+    return null;
+  }
+  function finishLanding(s, course, pad, lastIndex) {
+    s.grounded = pad.index;
+    s.airYaw = null;
+    s.airJumpReady = false;
+    s.furthest = Math.max(s.furthest, pad.index);
+    if (!course.endless && pad.index === lastIndex) s.finishTime ??= s.time;
+    if (pad.index > s.checkpoint && course.checkpoints?.includes(pad.index)) {
+      s.checkpoint = pad.index;
+      return 'checkpoint';
+    }
+    return null;
+  }
+  function landingContact(pad, s, x, y, z, before, baseX, travel) {
+    if (pad.gone) return null;
+    const height = api.surfaceHeight(pad, s.x, s.z);
+    const after = s.y - height;
+    if (after > 0) return null;
+    const endSupported = supports(pad, s.x, s.z, s.time, pad.kind === 'slide' ? 0 : 0.04);
+    if (pad.kind === 'stairs') {
+      if (!endSupported) return null;
+      const entered = !api.containsSurface(pad, x, z);
+      const climbed = rides.treadAt(pad, z) < rides.treadAt(pad, s.z) && !rides.dropped(pad, z, before);
+      const previousHeight = entered || climbed ? height - rides.rise - 0.05 : height;
+      if (y < previousHeight - 0.003) return null;
+      return { fraction: 1, x: s.x, z: s.z, height };
+    }
+    // Sweep across the top in the pad's frame, including its movement and tilt.
+    const startX = travel ? x + pad.x - (baseX + travel * Math.sin(before * 1.1 + pad.index)) : x;
+    const start = y - api.surfaceHeight(pad.previousSurface ?? pad, startX, z);
+    if (start >= -0.003) {
+      const fraction = Math.max(0, start) / (Math.max(0, start) - after || 1);
+      const hitX = startX + (s.x - startX) * fraction;
+      const hitZ = z + (s.z - z) * fraction;
+      if (supports(pad, hitX, hitZ, s.time, pad.kind === 'slide' ? 0 : 0.04)) {
+        const contactX = endSupported ? s.x : hitX;
+        const contactZ = endSupported ? s.z : hitZ;
+        return { fraction, x: contactX, z: contactZ, height: api.surfaceHeight(pad, contactX, contactZ) };
+      }
+    }
+    // Catch a shallow contact just over the rounded rim, without catching jumps from below.
+    if (endSupported && after >= -0.09 && start >= -0.06 && !api.containsSurface(pad, startX, z))
+      return { fraction: 1, x: s.x, z: s.z, height };
+    return null;
   }
   function startSurface(s, pad) {
     const surface =
@@ -263,7 +319,7 @@
     if (s.buffer > 0) s.queuedJump = true;
     s.buffer = 0.16;
   }
-  function tick(s, course, keys, touch, freeLook, dt) {
+  function tick(s, course, keys, touch, freeLook, thirdPerson, dt) {
     if (course.endless) {
       const shift = window.FluffEndless.advance(course, s.furthest);
       s.z -= shift;
@@ -296,14 +352,18 @@
     const turn =
       Number(keys.has('ArrowRight') || keys.has('KeyE')) -
       Number(keys.has('ArrowLeft') || keys.has('KeyQ'));
-    const previousRouteYaw = s.routeYaw;
     const targetYaw = routeDirection(pads, s.routePad - offset, s.z, s.routeLandingX, s.routeLandingZ);
-    s.routeYaw = approachAngle(previousRouteYaw, targetYaw, 13, 4.6, dt);
-    if (turn) s.yaw += turn * 1.85 * dt;
-    else if (!freeLook) {
-      // Carry the camera with the route while smoothing out the remaining free-look offset.
-      s.yaw = approachAngle(s.yaw + s.routeYaw - previousRouteYaw, s.routeYaw, 9, 4.3, dt);
-      s.pitch += (routePitch - s.pitch) * (1 - Math.exp(-8 * dt));
+    s.routeYaw = approachAngle(s.routeYaw, targetYaw, 13, 4.6, dt);
+    if (turn || freeLook) {
+      s.yaw += turn * 1.85 * dt;
+      s.yawVelocity = s.pitchVelocity = 0;
+    } else {
+      // Route steering can turn promptly. The view builds up speed independently,
+      // especially in first person, where the horizon moves with every turn.
+      const response = thirdPerson ? 23 : 14;
+      const wrappedYaw = s.yaw + angleDifference(s.routeYaw, s.yaw);
+      [s.yaw, s.yawVelocity] = springCamera(s.yaw, s.yawVelocity, wrappedYaw, response, dt);
+      [s.pitch, s.pitchVelocity] = springCamera(s.pitch, s.pitchVelocity, routePitch, 12, dt);
     }
     const forward =
       Number(keys.has('KeyW') || keys.has('ArrowUp')) -
@@ -377,37 +437,33 @@
     const stepping = s.moving && s.grounded !== null && !s.sliding;
     s.gait += (Number(stepping) - s.gait) * (1 - Math.exp(-13 * dt));
     if (s.gait > 0.015) s.walk += dt * (8 + 3 * s.gait) * pace;
+    let event = null;
     if (s.grounded !== null) {
       let pad = pads[s.grounded - offset];
       const next = pads[s.grounded - offset + 1];
       // The roof, descent and finish are joined surfaces the plush can cross without jumping.
       const boarding = pad.kind === 'tower-roof' && next?.slide?.through;
       const arriving = pad.slide?.through && s.z >= pad.z + pad.d / 2 - 1e-6;
-      if ((boarding || arriving) && next && onPad(next, s.x, s.z)) {
-        pad = next;
-        s.grounded = pad.index;
-        s.furthest = Math.max(s.furthest, pad.index);
-        if (arriving) {
-          s.sliding = false;
-          if (!course.endless && pad.index === pads.at(-1).index) s.finishTime ??= s.time;
-        }
+      if ((boarding || arriving) && supports(next, s.x, s.z, s.time)) pad = next;
+      else if (!supports(pad, s.x, s.z, s.time, pad.kind === 'slide' ? 0 : 0.035)) {
+        pad = joinNeighbour(pad, pads, offset, s);
       }
-      if (
-        pad.gone ||
-        !onPad(pad, s.x, s.z) ||
-        (pad.kind === 'stairs' && rides.dropped(pad, s.z, s.time))
-      ) {
+      if (!pad) {
         s.grounded = null;
         s.coyote = 0.09;
       } else {
+        const changed = s.grounded !== pad.index;
+        if (changed) {
+          event = finishLanding(s, course, pad, pads.at(-1).index);
+          s.sliding = pad.kind === 'slide';
+        }
         s.y = api.surfaceHeight(pad, s.x, s.z);
         if (pad.kind === 'stairs') {
           const reachedTread = rides.treadAt(pad, previousZ) !== rides.treadAt(pad, s.z);
-          rides.touchTread(s, pad, reachedTread);
+          rides.touchTread(s, pad, changed || reachedTread);
         }
       }
     }
-    let event = null;
     if (s.buffer > 0 && (s.grounded !== null || s.coyote > 0 || s.airJumpReady)) {
       const spin = s.grounded === null && s.coyote <= 0;
       s.vy = spin ? 9.5 : 7.3;
@@ -432,40 +488,23 @@
       s.vy -= 19 * dt;
       s.y += s.vy * dt;
       if (s.vy <= 0) {
+        let landing = null;
         for (const p of pads) {
-          if (p.gone || !onPad(p, s.x, s.z) || (p.kind === 'stairs' && rides.dropped(p, s.z, s.time)))
-            continue;
-          const height = api.surfaceHeight(p, s.x, s.z);
-          let previousHeight = p.previousSurface
-            ? api.surfaceHeight(p.previousSurface, s.x, s.z)
-            : height;
-          // Sweep across the riser. The previous foot position can be below the new
-          // tread even though it was still above the lower tread throughout the jump.
-          if (p.kind === 'stairs') {
-            const entered = !onPad(p, previousX, previousZ);
-            const climbed =
-              rides.treadAt(p, previousZ) < rides.treadAt(p, s.z) &&
-              !rides.dropped(p, previousZ, s.time);
-            if (entered || climbed) previousHeight = height - rides.rise - 0.05;
-          }
-          if (oldY >= previousHeight - 0.003 && s.y <= height) {
-            s.landingPower = Math.min(1, -s.vy / 7.3);
-            s.landAt = s.time;
-            if (p.kind) landOnSurface(s, p);
-            s.grounded = p.index;
-            s.airYaw = null;
-            s.airJumpReady = false;
-            s.furthest = Math.max(s.furthest, p.index);
-            s.y = height;
-            s.vy = 0;
-            s.coyote = 0.09;
-            if (!course.endless && p.index === pads.length - 1) s.finishTime ??= s.time;
-            if (p.index > s.checkpoint && course.checkpoints?.includes(p.index)) {
-              s.checkpoint = p.index;
-              event = 'checkpoint';
-            }
-            break;
-          }
+          if (p === ground) continue;
+          const [baseX, , , , , travel] = course.path[p.index - offset];
+          const contact = landingContact(p, s, previousX, oldY, previousZ, before, baseX, travel);
+          if (contact && (!landing || contact.fraction < landing.fraction)) landing = { ...contact, pad: p };
+        }
+        if (landing) {
+          s.x = landing.x;
+          s.y = landing.height;
+          s.z = landing.z;
+          s.landingPower = Math.min(1, -s.vy / 7.3);
+          s.landAt = s.time;
+          if (landing.pad.kind) landOnSurface(s, landing.pad);
+          s.vy = 0;
+          s.coyote = 0.09;
+          event = finishLanding(s, course, landing.pad, pads.at(-1).index) ?? event;
         }
       }
     }
@@ -645,6 +684,7 @@
         lifeGoal,
         loot,
       };
+      this.world.resetCamera?.();
       this.resume();
     }
     key(e, down) {
@@ -749,7 +789,7 @@
       while (this.acc >= step && !outcome) {
         this.acc -= step;
         const freeLook = this.drag || this.touch.looking?.dragged;
-        const event = tick(this.state, this.course, this.keys, this.touch, freeLook, step);
+        const event = tick(this.state, this.course, this.keys, this.touch, freeLook, this.world.thirdPerson, step);
         if (event === 'checkpoint') {
           this.hooks.checkpoint(this.state.checkpoint);
         } else if (event === 'jump' || event === 'spin') {
