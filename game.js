@@ -10,15 +10,15 @@
     baseSpeed = 5.75,
     airAcceleration = 30,
     airDrag = 0.55,
-    manualLookPause = 0.9,
-    startingPitch = -0.18;
+    manualLookPause = 1.25,
+    recenterDelay = 0.18;
   function angleDifference(target, from) {
     const angle = target - from;
     return Math.atan2(Math.sin(angle), Math.cos(angle));
   }
-  function manualPan(state, touch, angle) {
+  function manualPan(state, angle) {
     state.yaw += angle;
-    touch.turn(angle);
+    state.recenterHeading = null;
     state.followAfter = state.time + manualLookPause;
   }
   function followYaw(state, target, rate, maxSpeed, dt) {
@@ -37,9 +37,10 @@
       z: -1.35,
       yaw: 0,
       followAfter: 0,
+      recenterHeading: null,
       heading: 0,
       moving: false,
-      pitch: startingPitch,
+      pitch: -0.18,
       vx: 0,
       vy: 0,
       vz: 0,
@@ -268,38 +269,22 @@
     const turn =
       Number(keys.has('ArrowRight') || keys.has('KeyE')) -
       Number(keys.has('ArrowLeft') || keys.has('KeyQ'));
-    if (turn) manualPan(s, touch, turn * 1.85 * dt);
-    const forward =
+    if (turn) manualPan(s, turn * 1.85 * dt);
+    const keyForward =
       Number(keys.has('KeyW') || keys.has('ArrowUp')) -
       Number(keys.has('KeyS') || keys.has('ArrowDown'));
-    const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
+    const keySide = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
+    const stickActive = Boolean(touch.forward || touch.side);
+    const forward = keyForward + touch.forward;
+    const side = keySide + touch.side;
+    const moveLength = Math.hypot(forward, side);
     if (touch.looking?.dragged) s.followAfter = s.time + manualLookPause;
-    const canFollow = ground && !onSlide && !forward && !side && s.time >= s.followAfter;
-    const next = canFollow && course.tower && (touch.primaryTouch.matches || touch.steering)
-      ? pads[ground.index - offset + 1]
-      : null;
-    let routeYaw = null;
-    if (next && !next.gone) {
-      // The tower turns at each landing. Aim at the next cushion or the slide entrance.
-      const z = next.kind === 'slide' ? next.z - next.d / 2 + 1.25 : next.z;
-      routeYaw = Math.atan2(next.x - s.x, z - s.z);
-    }
     const sy = Math.sin(s.yaw),
       cy = Math.cos(s.yaw);
-    let moveX = forward * sy + side * cy,
-      moveZ = forward * cy - side * sy;
-    const touchStrength = Math.hypot(touch.forward, touch.side);
-    if (touchStrength) {
-      const steerYaw = touch.movementYaw(s.yaw, ground?.index, routeYaw);
-      const sx = Math.sin(steerYaw), sz = Math.cos(steerYaw);
-      moveX += touch.forward * sx + touch.side * sz;
-      moveZ += touch.forward * sz - touch.side * sx;
-    }
-    const moveLength = Math.hypot(moveX, moveZ);
     const pace = speedMultiplier(course, s.furthest);
     const speed = baseSpeed * pace / Math.max(1, moveLength);
-    let vx = moveX * speed,
-      vz = moveZ * speed;
+    let vx = (forward * sy + side * cy) * speed,
+      vz = (forward * cy - side * sy) * speed;
     if (s.grounded === null) {
       if (moveLength || touch.steering) {
         const dx = vx - s.vx,
@@ -336,12 +321,24 @@
     s.moving = Math.hypot(vx, vz) > 0.03;
     const heading = s.moving ? Math.atan2(vx, vz) : s.heading;
     if (s.moving) s.heading += angleDifference(heading, s.heading) * (1 - Math.exp(-14 * dt));
-    // Keep the airborne view steady and yield to manual swipes.
-    if (canFollow && !s.buffer) {
-      if (routeYaw !== null) {
-        followYaw(s, routeYaw, 9, 3.8, dt);
-        s.pitch += (startingPitch - s.pitch) * (1 - Math.exp(-5 * dt));
-      } else if (s.moving && touchStrength > 0.44) followYaw(s, heading, 3.5, 1.9, dt);
+    if (onSlide || keyForward || keySide) s.recenterHeading = null;
+    else if (ground && stickActive && !touch.looking?.dragged) {
+      const intentionalStride = touch.forward > 0.5 && Math.abs(touch.side) < touch.forward * 0.7;
+      s.recenterHeading = intentionalStride ? heading : null;
+    }
+    // Movement always uses the visible camera axes. Only turn automatically during a pause.
+    if (stickActive || keyForward || keySide || !ground || onSlide || s.buffer) {
+      s.followAfter = Math.max(s.followAfter, s.time + recenterDelay);
+    } else if (s.time >= s.followAfter) {
+      const next = course.tower && (touch.primaryTouch.matches || touch.steering)
+        ? pads[ground.index - offset + 1]
+        : null;
+      if (next && !next.gone) {
+        const z = next.kind === 'slide' ? next.z - next.d / 2 + 1.25 : next.z;
+        followYaw(s, Math.atan2(next.x - s.x, z - s.z), 7, 2.8, dt);
+      } else if (s.recenterHeading !== null) {
+        followYaw(s, s.recenterHeading, 3.5, 1.1, dt);
+      }
     }
     const wind = ground?.kind === 'gust' ? window.FluffGust.wind(ground, s.time) : 0;
     s.z += vz * dt;
@@ -664,7 +661,7 @@
       else this.keys.delete(e.code);
     }
     look(dx, dy, sensitivity = 0.0025) {
-      if (dx || dy) manualPan(this.state, this.touch, dx * sensitivity);
+      if (dx || dy) manualPan(this.state, dx * sensitivity);
       this.state.pitch = Math.max(-1.15, Math.min(0.98, this.state.pitch - dy * sensitivity * 0.92));
     }
     capture() {

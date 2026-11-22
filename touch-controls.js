@@ -1,8 +1,10 @@
 (() => {
   'use strict';
 
-  const reach = 38;
-  const deadZone = 5;
+  const reach = 46;
+  const deadZone = 8;
+  const axisDeadZone = Math.PI / 30;
+  const rightAngle = Math.PI / 2;
   const tapSlop = 12;
   const tapDuration = 450;
   const lookSensitivity = 0.0055;
@@ -36,6 +38,10 @@
           if (this[hand]) return;
           this[hand] = contact(event);
           target.setPointerCapture(event.pointerId);
+          if (onLeft) {
+            this.stick.style.setProperty('--stick-origin-x', (event.clientX - bounds.left) + 'px');
+            this.stick.style.setProperty('--stick-origin-y', (event.clientY - bounds.top) + 'px');
+          }
           (onLeft ? this.stick : this.jumpButton).setAttribute('data-held', '');
           if (target === this.jumpButton) jump();
         });
@@ -77,31 +83,20 @@
     steer(dx, dy) {
       const distance = Math.hypot(dx, dy);
       const travel = Math.min(1, Math.max(0, (distance - deadZone) / (reach - deadZone)));
-      // The centre has extra room for small corrections; a full tilt keeps running speed.
-      const scale = travel ** 1.35 / (distance || 1);
-      this.side = travel ? dx * scale : 0;
-      this.forward = travel ? -dy * scale : 0;
-      if (!travel && this.steering) this.steering.yaw = undefined;
-      this.stick.style.setProperty('--stick-x', this.side);
-      this.stick.style.setProperty('--stick-y', -this.forward);
-    }
-
-    movementYaw(cameraYaw, groundIndex, routeYaw) {
-      const steer = this.steering;
-      const forward = this.forward > 0 && Math.abs(this.side) < this.forward * 0.22;
-      // Keep a held direction stable while the camera catches up. Returning the stick
-      // to forward or landing on a new tower cushion can pick up the next approach.
-      const newGround = groundIndex !== undefined && steer.groundIndex !== groundIndex;
-      const guided = forward && routeYaw !== null;
-      if (steer.yaw === undefined || (forward && !steer.wasForward) || (guided && newGround))
-        steer.yaw = guided ? routeYaw : cameraYaw;
-      if (groundIndex !== undefined) steer.groundIndex = groundIndex;
-      steer.wasForward = forward;
-      return steer.yaw;
-    }
-
-    turn(delta) {
-      if (this.steering?.yaw !== undefined) this.steering.yaw += delta;
+      const speed = travel ** 1.85;
+      const angle = Math.atan2(-dy, dx);
+      const axis = Math.round(angle / rightAngle) * rightAngle;
+      const offset = angle - axis;
+      // Give the four cardinal directions a small flat zone and blend into diagonals.
+      const diagonal = rightAngle / 2;
+      const blend = Math.max(0, Math.abs(offset) - axisDeadZone) / (diagonal - axisDeadZone);
+      const direction = axis + Math.sign(offset) * diagonal * blend;
+      this.side = Math.cos(direction) * speed;
+      this.forward = Math.sin(direction) * speed;
+      // The knob tracks the thumb independently of the movement curve.
+      const visualReach = Math.max(distance, reach);
+      this.stick.style.setProperty('--stick-x', dx / visualReach);
+      this.stick.style.setProperty('--stick-y', dy / visualReach);
     }
 
     release(id) {

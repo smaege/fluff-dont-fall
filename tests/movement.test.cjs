@@ -31,7 +31,7 @@ function startGame(courseId = 'cloud', localStorage) {
     return target;
   }
   const stick = eventTarget(), jump = eventTarget();
-  const canvas = eventTarget({ focus: noOp, getBoundingClientRect: () => ({ width: 400, left: 0 }) });
+  const canvas = eventTarget({ focus: noOp, getBoundingClientRect: () => ({ width: 400, left: 0, top: 0 }) });
   const context = vm.createContext({
     document: eventTarget({ getElementById: id => id === 'touch-stick' ? stick : jump }),
     addEventListener: noOp,
@@ -193,7 +193,7 @@ test('the left thumb controls speed and steering as the right thumb aims or jump
   assert.equal(state.vz, 0);
   touch('pointermove', 1, 178, 249);
   advance(12);
-  assert.ok(state.yaw > 0 && state.yaw < Math.atan2(state.vx, state.vz));
+  assert.equal(state.yaw, 0);
   assert.ok(state.vx > 0);
   assert.ok(state.vz > 0 && state.vz < 5.75);
 
@@ -224,14 +224,34 @@ test('the left thumb controls speed and steering as the right thumb aims or jump
   assert.equal(game.touch.side, 0);
 });
 
-test('touch camera turns toward a held course without curving it or turning in a jump', () => {
+test('touch stick has circular dead zones, slower movement near the centre and straight axes', () => {
+  const { game, touch } = startGame();
+  touch('pointerdown', 1, 75, 240);
+  const sample = (dx, dy) => {
+    touch('pointermove', 1, 75 + dx, 240 + dy);
+    return Math.hypot(game.touch.forward, game.touch.side);
+  };
+  assert.equal(sample(4, -6), 0);
+  const slow = sample(0, -18);
+  const medium = sample(0, -27);
+  const fast = sample(0, -40);
+  assert.ok(slow > 0.05 && slow < medium && medium < 0.3 && fast > 0.7);
+  assert.equal(sample(0, -46), 1);
+  assert.equal(sample(0, -75), 1);
+  assert.equal(sample(3, -48), 1);
+  assert.ok(Math.abs(game.touch.side) < 1e-10);
+  assert.ok(Math.abs(sample(27 / Math.SQRT2, -27 / Math.SQRT2) - medium) < 1e-10);
+  assert.ok(Math.abs(game.touch.side - game.touch.forward) < 1e-10);
+});
+
+test('a deflected touch stick and an airborne plush keep the current camera axis', () => {
   const { game, advance, touch } = startGame();
   const { state } = game;
   const beforeZ = state.z;
   touch('pointerdown', 1, 75, 240);
   touch('pointermove', 1, 123, 240);
   advance(38);
-  assert.ok(state.yaw > 0.5 && state.yaw < 0.7);
+  assert.equal(state.yaw, 0);
   assert.ok(state.x > 1.7);
   assert.equal(state.z, beforeZ);
   const aimed = state.yaw;
@@ -265,7 +285,7 @@ test('manual look takes priority over touch follow and desktop strafing keeps it
   assert.ok(state.x > 1);
 
   touch('pointerdown', 1, 75, 240);
-  touch('pointermove', 1, 112, 208);
+  touch('pointermove', 1, 93, 195);
   advance(12);
   touch('pointerdown', 2, 325, 240, 330);
   touch('pointermove', 2, 292, 255, 390);
@@ -273,7 +293,10 @@ test('manual look takes priority over touch follow and desktop strafing keeps it
   advance(116);
   assert.equal(state.yaw, aimed);
   touch('pointerup', 2, 292, 255, 1400);
-  advance(90);
+  advance(155);
+  assert.equal(state.yaw, aimed);
+  touch('pointermove', 1, 75, 240);
+  advance(10);
   assert.equal(state.yaw, aimed);
   advance(45);
   assert.ok(state.yaw > aimed);
@@ -434,29 +457,36 @@ test('the tower is a continuous climb around two turns, with a solid wall below 
   }
 });
 
-test('a held touch stick lines up successive tower jumps without manual camera turns', () => {
+test('pausing the touch stick lines up tower jumps without changing direction while steering', () => {
   const { game, pads, place, advance, touch, jump } = startGame('tower');
   game.course.hazards = [];
   place(pads[2]);
   touch('pointerdown', 1, 75, 240);
-  advance(61);
+  touch('pointermove', 1, 75, 192);
+  advance(4);
+  assert.equal(game.state.yaw, 0);
+  assert.ok(Math.abs(game.state.vx) < 1e-10 && game.state.vz > 5);
+  touch('pointermove', 1, 75, 240);
+  advance(90);
   const ahead = Math.atan2(pads[3].x - pads[2].x, pads[3].z - pads[2].z);
   assert.ok(Math.abs(game.state.yaw - ahead) < 0.08);
-  touch('pointermove', 1, 75, 192);
-
-  // Climb a full turn using the same forward hold, taking off near each cushion's edge.
+  // Climb one turn by centring the stick on each landing before the next jump.
   for (let index = 2; index < 17; index++) {
     const next = pads[index + 1];
     const distance = () => Math.hypot(next.x - game.state.x, next.z - game.state.z);
+    const yaw = game.state.yaw;
+    touch('pointermove', 1, 75, 192);
     for (let frame = 0; frame < 70 && distance() > 3.6; frame++) advance(1);
     assert.equal(game.state.grounded, index);
     assert.ok(distance() <= 3.6);
-    const yaw = game.state.yaw;
+    assert.equal(game.state.yaw, yaw);
     touch('pointerdown', 2, 355, 244, 0, jump);
     touch('pointerup', 2, 355, 244, 30, jump);
     for (let frame = 0; frame < 110 && game.state.grounded !== next.index; frame++) advance(1);
     assert.equal(game.state.grounded, next.index, `tower cushion ${next.index}`);
     assert.equal(game.state.yaw, yaw);
+    touch('pointermove', 1, 75, 240);
+    advance(70);
   }
   assert.equal(game.state.lives, 3);
 });

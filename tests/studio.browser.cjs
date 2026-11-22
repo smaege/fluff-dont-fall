@@ -84,11 +84,14 @@ test('two thumbs can steer, look and jump in both phone orientations', async (t)
     const swipe = point(2, right.x + 53, right.y + 27);
     const before = await state();
     await send('touchStart', left);
+    const track = await page.locator('.touch-stick-track').boundingBox();
+    assert.ok(Math.abs(track.x + track.width / 2 - left.x) < 2);
+    assert.ok(Math.abs(track.y + track.height / 2 - left.y) < 2);
     await send('touchMove', steer);
     await step(90);
     const moved = await state();
     assert.ok(moved.x > before.x && moved.z > before.z);
-    assert.ok(moved.yaw > before.yaw && moved.yaw - before.yaw < 0.2);
+    assert.equal(moved.yaw, before.yaw);
     assert.equal(moved.lens < 1.39, width < height);
     await send('touchStart', steer, right);
     await send('touchMove', steer, swipe);

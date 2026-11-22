@@ -1402,7 +1402,16 @@ dialog.village-dialog::backdrop {
     font-size: 0.77rem;
     font-weight: 850;
   }
+  .touch-steering[data-held] {
+    --stick-size: 124px;
+    --stick-travel: 42px;
+    top: var(--stick-origin-y);
+    left: var(--stick-origin-x);
+    bottom: auto;
+    transform: translate(calc(var(--stick-size) * -0.5), calc(var(--stick-size) * -0.5));
+  }
   .touch-steering[data-held] .touch-stick-knob {
+    width: 32%;
     background: #eacafa;
   }
   .touch-jump[data-held] {
