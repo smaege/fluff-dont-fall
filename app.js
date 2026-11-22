@@ -945,10 +945,10 @@
         ' Paketeista saadut merkit menevät suoraan kukkaroon.</p>' +
         '<p>Anna pupun tassutella sivuun tai hyppää sen yli. Kun pörriäinen nousee korkealle, voit juosta sen alta. Kulje verhon ali vihreällä valolla ja tähtää karkkipuomin liikkuvaan aukkoon.</p>' +
         '<p>Putoava laatta heilahtaa, kun laskeudut sille. Hyppää pois ennen kuin laatta putoaa. Laskeudu keikkuvan laudan keskelle ja ohjaa takaisin keskelle, jos alat liukua. Ajoita hyppysi esteiden yli.</p>' +
-        '<p>Voit kävellä suoraan portaille. Jokainen askelma kantaa viisi sekuntia. Saat uudet viisi sekuntia, kun astut sille uudelleen. Pudonnut askelma palaa pian paikalleen. Huipulta pääset sateenkaariliukuun.</p>' +
+        '<p>Voit kävellä suoraan portaille. Jokainen askelma kantaa viisi sekuntia. Saat uudet viisi sekuntia, kun astut sille uudelleen. Pudonnut askelma palaa pian paikalleen. Huipulta pääset sateenkaariliukuun. Jos liu’un jälkeen on väli, hyppää reunalta seuraavalle tyynylle.</p>' +
         '<p>Välilyönnin tai Hyppää-painikkeen näpäytys riittää hyppyyn. Pehmo jatkaa ilmassa ponnistussuuntaan, ja voit ohjata sitä kohti laskeutumispaikkaa. Toinen näpäytys ilmassa tekee pyörähdyshypyn. Sillä yllät siipipakettiin, josta saat varusteen tai molemmat varusteet löydettyäsi kuusi tassumerkkiä.</p>' +
         '<div class="control-list"><div><strong>Liiku</strong><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span></div><div><strong>Katso ympärillesi</strong><span>Hiiri tai <kbd>←</kbd> <kbd>→</kbd></span></div><div><strong>Hyppää</strong><kbd>Välilyönti</kbd></div><div><strong>Vaihda kuvakulmaa</strong><kbd>V</kbd></div><div><strong>Juttele kyläläiselle</strong><kbd>T</kbd></div><div><strong>Musiikki päälle / pois</strong><kbd>M</kbd></div><div><strong>Tauko</strong><span><kbd>Esc</kbd> / <kbd>P</kbd></span></div></div>' +
-        '<p class="note touch-help">Liiku vasemmalla peukalolla. Voit ottaa sivuaskeleita ja jarruttaa ilmassa palauttamalla peukalon keskelle. Pyyhkäise oikealta katsoaksesi ympärillesi tai napauta hypätäksesi. Toinen napautus ilmassa tekee pyörähdyshypyn.</p>' +
+        '<p class="note touch-help">Liiku vasemmalla peukalolla. Kamera kääntyy maassa pehmeästi menosuuntaan. Pyyhkäise oikealta, kun haluat tähdätä itse, tai napauta hypätäksesi. Toinen napautus ilmassa tekee pyörähdyshypyn. Tikun keskelle palauttaminen jarruttaa ilmassa.</p>' +
         '<p class="note">Napauta kyläläisen puhekuplaa, kun haluat jutella. Samalla nimellä löydät pehmosi ja sen parhaat rata-ajat tästä selaimesta.</p><div class="dialog-actions"><button class="primary" id="help-ok">Selvä!</button></div>',
     );
     $('help-ok').onclick = close;
@@ -1420,9 +1420,9 @@
         : footing?.kind === 'stairs'
           ? 'Askelma putoaa · ' + window.FluffSkyRides.secondsLeft(footing, s.z, s.time) + ' s'
           : footing?.kind === 'slide'
-            ? footing.slide?.through || window.FluffSkyRides.progress(footing, s.z) < 0.9 - 1e-6
+            ? footing.slide?.through || footing.z + footing.d / 2 - s.z > 5
               ? 'Sateenkaariliuku'
-              : 'Sateenkaariliu’un tasanne'
+              : 'Hyppää seuraavalle tyynylle'
             : footing?.kind === 'tower-roof'
               ? 'Sateenkaariliuku katon toisella laidalla'
               : footing && game.course.gifts.some((gift) => gift.aerial && gift.at === footing.index)

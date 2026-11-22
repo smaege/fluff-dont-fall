@@ -193,15 +193,15 @@ test('the left thumb controls speed and steering as the right thumb aims or jump
   assert.equal(state.vz, 0);
   touch('pointermove', 1, 178, 249);
   advance(12);
-  assert.equal(state.yaw, 0);
+  assert.ok(state.yaw > 0 && state.yaw < Math.atan2(state.vx, state.vz));
   assert.ok(state.vx > 0);
   assert.ok(state.vz > 0 && state.vz < 5.75);
 
-  const pitch = state.pitch;
+  const { pitch, yaw } = state;
   touch('pointerdown', 2, 315, 270, 100);
   touch('pointermove', 2, 269, 297, 140);
   touch('pointerup', 2, 269, 297, 155);
-  assert.ok(state.yaw < 0);
+  assert.ok(state.yaw < yaw);
   assert.ok(state.pitch < pitch);
   assert.equal(state.buffer, 0);
   assert.ok(game.touch.forward > 0 && game.touch.side > 0);
@@ -222,6 +222,61 @@ test('the left thumb controls speed and steering as the right thumb aims or jump
   touch('lostpointercapture', 1, 178, 249);
   assert.equal(game.touch.forward, 0);
   assert.equal(game.touch.side, 0);
+});
+
+test('touch camera turns toward a held course without curving it or turning in a jump', () => {
+  const { game, advance, touch } = startGame();
+  const { state } = game;
+  const beforeZ = state.z;
+  touch('pointerdown', 1, 75, 240);
+  touch('pointermove', 1, 123, 240);
+  advance(38);
+  assert.ok(state.yaw > 0.5 && state.yaw < 0.7);
+  assert.ok(state.x > 1.7);
+  assert.equal(state.z, beforeZ);
+  const aimed = state.yaw;
+  touch('pointerdown', 2, 325, 240, 330);
+  touch('pointerup', 2, 325, 240, 395);
+  advance(8);
+  assert.equal(state.grounded, null);
+  assert.equal(state.yaw, aimed);
+
+  game.start(game.course);
+  touch('pointerdown', 1, 75, 240);
+  touch('pointermove', 1, 123, 240);
+  advance(24);
+  touch('pointermove', 1, 75, 192);
+  advance(1);
+  assert.ok(Math.abs(Math.atan2(game.state.vx, game.state.vz) - game.state.yaw) < 1e-10);
+});
+
+test('manual look takes priority over touch follow and desktop strafing keeps its camera', () => {
+  const { game, advance, place, press, touch } = startGame();
+  const { state } = game;
+  game.course.path = [[0, 0, 0, 50, 50], [0, 100, 0, 5, 5]];
+  game.course.stars = [];
+  game.course.gifts = [];
+  game.course.hazards = [];
+  place(game.draw()[0]);
+  press('KeyD', true);
+  advance(24);
+  press('KeyD', false);
+  assert.equal(state.yaw, 0);
+  assert.ok(state.x > 1);
+
+  touch('pointerdown', 1, 75, 240);
+  touch('pointermove', 1, 112, 208);
+  advance(12);
+  touch('pointerdown', 2, 325, 240, 330);
+  touch('pointermove', 2, 292, 255, 390);
+  const aimed = state.yaw;
+  advance(116);
+  assert.equal(state.yaw, aimed);
+  touch('pointerup', 2, 292, 255, 1400);
+  advance(90);
+  assert.equal(state.yaw, aimed);
+  advance(45);
+  assert.ok(state.yaw > aimed);
 });
 
 test('the jump button responds immediately and centring the held stick brakes in midair', () => {
@@ -302,6 +357,20 @@ test('jumping from the slide carries the slide speed into the air', () => {
   assert.ok(game.state.z > takeoffZ + slideSpeed * 0.09);
 });
 
+test('an ordinary slide carries the plush over the edge without jumping', () => {
+  const { game, pads, place, advance } = startGame();
+  const slide = pads.find((pad) => pad.kind === 'slide');
+  const edge = slide.z + slide.d / 2;
+  place(slide, slide.x, slide.z + 0.38 * slide.d);
+  for (let frame = 0; frame < 150 && game.state.grounded === slide.index; frame++) advance(1);
+  assert.equal(game.state.grounded, null);
+  assert.ok(game.state.z > edge && game.state.vz > 3);
+  assert.ok(game.state.vy < 0);
+  const exitedAt = game.state.z;
+  advance(15);
+  assert.ok(game.state.z > exitedAt + 0.4);
+});
+
 test('every new slide can be ridden from its checkpoint and jumped from the run-out', () => {
   const routes = { grove: 22, reef: 26, orchard: 27, rose: 22, meadow: 25, tulip: 30 };
   for (const [id, length] of Object.entries(routes)) {
@@ -323,8 +392,9 @@ test('every new slide can be ridden from its checkpoint and jumped from the run-
     }
     assert.ok(rode && game.state.z > end - 0.5, id);
     assert.equal(game.state.grounded, slide.index, id);
-    assert.ok(!game.state.sliding, id);
-    game.state.yaw = Math.atan2(after.x - game.state.x, after.z - game.state.z);
+    assert.ok(game.state.sliding && game.state.vz > 4, id);
+    const landingYaw = Math.atan2(after.x - game.state.x, after.z - game.state.z);
+    game.look(landingYaw - game.state.yaw, 0, 1);
     touch('pointerdown', 2, 320, 250, 100);
     touch('pointerup', 2, 320, 250, 170);
     for (let frame = 0; frame < 125 && game.state.grounded !== after.index; frame++) advance(1);
@@ -362,6 +432,33 @@ test('the tower is a continuous climb around two turns, with a solid wall below 
     for (let frame = 0; frame < 118 && game.state.grounded !== to.index; frame++) advance(1);
     assert.equal(game.state.grounded, to.index, `tower cushions ${at} → ${to.index}`);
   }
+});
+
+test('a held touch stick lines up successive tower jumps without manual camera turns', () => {
+  const { game, pads, place, advance, touch, jump } = startGame('tower');
+  game.course.hazards = [];
+  place(pads[2]);
+  touch('pointerdown', 1, 75, 240);
+  advance(61);
+  const ahead = Math.atan2(pads[3].x - pads[2].x, pads[3].z - pads[2].z);
+  assert.ok(Math.abs(game.state.yaw - ahead) < 0.08);
+  touch('pointermove', 1, 75, 192);
+
+  // Climb a full turn using the same forward hold, taking off near each cushion's edge.
+  for (let index = 2; index < 17; index++) {
+    const next = pads[index + 1];
+    const distance = () => Math.hypot(next.x - game.state.x, next.z - game.state.z);
+    for (let frame = 0; frame < 70 && distance() > 3.6; frame++) advance(1);
+    assert.equal(game.state.grounded, index);
+    assert.ok(distance() <= 3.6);
+    const yaw = game.state.yaw;
+    touch('pointerdown', 2, 355, 244, 0, jump);
+    touch('pointerup', 2, 355, 244, 30, jump);
+    for (let frame = 0; frame < 110 && game.state.grounded !== next.index; frame++) advance(1);
+    assert.equal(game.state.grounded, next.index, `tower cushion ${next.index}`);
+    assert.equal(game.state.yaw, yaw);
+  }
+  assert.equal(game.state.lives, 3);
 });
 
 test('the tower slide carries a rider from the roof to the portal terrace without a jump', () => {

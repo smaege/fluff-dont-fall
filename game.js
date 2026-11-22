@@ -9,7 +9,24 @@
     endlessLifeStep = 10,
     baseSpeed = 5.75,
     airAcceleration = 30,
-    airDrag = 0.55;
+    airDrag = 0.55,
+    manualLookPause = 0.9,
+    startingPitch = -0.18;
+  function angleDifference(target, from) {
+    const angle = target - from;
+    return Math.atan2(Math.sin(angle), Math.cos(angle));
+  }
+  function manualPan(state, touch, angle) {
+    state.yaw += angle;
+    touch.turn(angle);
+    state.followAfter = state.time + manualLookPause;
+  }
+  function followYaw(state, target, rate, maxSpeed, dt) {
+    const angle = angleDifference(target, state.yaw);
+    if (Math.abs(angle) <= 0.025) return;
+    const rotation = angle * (1 - Math.exp(-rate * dt));
+    state.yaw += Math.max(-maxSpeed * dt, Math.min(maxSpeed * dt, rotation));
+  }
   function speedMultiplier(course, furthest) {
     return course.endless ? 1 + 0.25 * Math.min(1, furthest / 72) : 1;
   }
@@ -19,9 +36,10 @@
       y: 0,
       z: -1.35,
       yaw: 0,
+      followAfter: 0,
       heading: 0,
       moving: false,
-      pitch: -0.18,
+      pitch: startingPitch,
       vx: 0,
       vy: 0,
       vz: 0,
@@ -242,6 +260,7 @@
     const pads = api.platforms(course, s.time);
     updateSurfaces(s, course, pads, dt);
     const ground = s.grounded === null ? null : pads[s.grounded - offset];
+    const onSlide = ground?.kind === 'slide';
     if (ground) {
       const [baseX, , , , , travel] = course.path[s.grounded - offset];
       if (travel) s.x += ground.x - (baseX + travel * Math.sin(before * 1.1 + s.grounded));
@@ -249,23 +268,40 @@
     const turn =
       Number(keys.has('ArrowRight') || keys.has('KeyE')) -
       Number(keys.has('ArrowLeft') || keys.has('KeyQ'));
-    s.yaw += turn * 1.85 * dt;
-    let forward =
+    if (turn) manualPan(s, touch, turn * 1.85 * dt);
+    const forward =
       Number(keys.has('KeyW') || keys.has('ArrowUp')) -
-      Number(keys.has('KeyS') || keys.has('ArrowDown')) +
-      touch.forward;
-    let side = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.side;
-    const length = Math.max(1, Math.hypot(forward, side));
-    forward /= length;
-    side /= length;
+      Number(keys.has('KeyS') || keys.has('ArrowDown'));
+    const side = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
+    if (touch.looking?.dragged) s.followAfter = s.time + manualLookPause;
+    const canFollow = ground && !onSlide && !forward && !side && s.time >= s.followAfter;
+    const next = canFollow && course.tower && (touch.primaryTouch.matches || touch.steering)
+      ? pads[ground.index - offset + 1]
+      : null;
+    let routeYaw = null;
+    if (next && !next.gone) {
+      // The tower turns at each landing. Aim at the next cushion or the slide entrance.
+      const z = next.kind === 'slide' ? next.z - next.d / 2 + 1.25 : next.z;
+      routeYaw = Math.atan2(next.x - s.x, z - s.z);
+    }
     const sy = Math.sin(s.yaw),
       cy = Math.cos(s.yaw);
+    let moveX = forward * sy + side * cy,
+      moveZ = forward * cy - side * sy;
+    const touchStrength = Math.hypot(touch.forward, touch.side);
+    if (touchStrength) {
+      const steerYaw = touch.movementYaw(s.yaw, ground?.index, routeYaw);
+      const sx = Math.sin(steerYaw), sz = Math.cos(steerYaw);
+      moveX += touch.forward * sx + touch.side * sz;
+      moveZ += touch.forward * sz - touch.side * sx;
+    }
+    const moveLength = Math.hypot(moveX, moveZ);
     const pace = speedMultiplier(course, s.furthest);
-    const speed = baseSpeed * pace;
-    let vx = (forward * sy + side * cy) * speed,
-      vz = (forward * cy - side * sy) * speed;
+    const speed = baseSpeed * pace / Math.max(1, moveLength);
+    let vx = moveX * speed,
+      vz = moveZ * speed;
     if (s.grounded === null) {
-      if (forward || side || touch.steering) {
+      if (moveLength || touch.steering) {
         const dx = vx - s.vx,
           dz = vz - s.vz;
         // A held stick near its centre brakes. Releasing it still carries the jump's momentum.
@@ -278,29 +314,34 @@
         vx = s.vx * drag;
         vz = s.vz * drag;
       }
-    } else if (s.buffer > 0 && !forward && !side && ground?.kind !== 'slide') {
+    } else if (s.buffer > 0 && !moveLength && ground?.kind !== 'slide') {
       // A jump tap and direction release can arrive between the same two physics steps.
       vx = s.vx;
       vz = s.vz;
     }
-    const onSlide = ground?.kind === 'slide';
-    const t = onSlide ? rides.progress(ground, s.z) : 1;
-    const runOut = ground?.slide?.through ? 1 : 0.9;
-    s.sliding = onSlide && t < runOut - 1e-6;
+    s.sliding = onSlide;
     if (s.sliding) {
-      const topSpeed = ground.slide?.through ? 13.5 : 10.5;
+      const through = ground.slide?.through;
+      const topSpeed = through ? 13.5 : 10.5;
+      const exitSpeed = through ? 6.5 : 4.4;
       s.slideSpeed = Math.min(topSpeed, Math.max(2.3, s.slideSpeed) + 6.4 * dt);
-      const brake = Math.min(1, (runOut - t) / 0.18);
-      const remaining = ground.z + (runOut - 0.5) * ground.d - s.z;
-      vz = Math.min(remaining / dt, Math.max(1.5, s.slideSpeed * brake + vz * 0.18));
+      const runOut = Math.min(1, (1 - rides.progress(ground, s.z)) / 0.18);
+      const speedLimit = exitSpeed + (topSpeed - exitSpeed) * runOut;
+      // Slow down for the jump but preserve forward momentum when crossing the lip.
+      vz = Math.max(1.5, Math.min(s.slideSpeed, speedLimit) + vz * 0.18);
       const nextZ = s.z + vz * dt;
       // Carry the rider round the curve while leaving both hands free to steer across the stripes.
       vx = vx * 0.76 + (rides.laneCenter(ground, nextZ) - rides.laneCenter(ground, s.z)) / dt;
     } else s.slideSpeed = 0;
     s.moving = Math.hypot(vx, vz) > 0.03;
-    if (s.moving) {
-      const angle = Math.atan2(vx, vz) - s.heading;
-      s.heading += Math.atan2(Math.sin(angle), Math.cos(angle)) * (1 - Math.exp(-14 * dt));
+    const heading = s.moving ? Math.atan2(vx, vz) : s.heading;
+    if (s.moving) s.heading += angleDifference(heading, s.heading) * (1 - Math.exp(-14 * dt));
+    // Keep the airborne view steady and yield to manual swipes.
+    if (canFollow && !s.buffer) {
+      if (routeYaw !== null) {
+        followYaw(s, routeYaw, 9, 3.8, dt);
+        s.pitch += (startingPitch - s.pitch) * (1 - Math.exp(-5 * dt));
+      } else if (s.moving && touchStrength > 0.44) followYaw(s, heading, 3.5, 1.9, dt);
     }
     const wind = ground?.kind === 'gust' ? window.FluffGust.wind(ground, s.time) : 0;
     s.z += vz * dt;
@@ -623,7 +664,7 @@
       else this.keys.delete(e.code);
     }
     look(dx, dy, sensitivity = 0.0025) {
-      this.state.yaw += dx * sensitivity;
+      if (dx || dy) manualPan(this.state, this.touch, dx * sensitivity);
       this.state.pitch = Math.max(-1.15, Math.min(0.98, this.state.pitch - dy * sensitivity * 0.92));
     }
     capture() {

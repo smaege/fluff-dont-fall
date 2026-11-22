@@ -11,6 +11,7 @@
     constructor(canvas, running, look, jump) {
       this.stick = document.getElementById('touch-stick');
       this.jumpButton = document.getElementById('touch-jump');
+      this.primaryTouch = matchMedia('(pointer: coarse)');
       this.steering = null;
       this.looking = null;
       this.forward = 0;
@@ -80,8 +81,27 @@
       const scale = travel ** 1.35 / (distance || 1);
       this.side = travel ? dx * scale : 0;
       this.forward = travel ? -dy * scale : 0;
+      if (!travel && this.steering) this.steering.yaw = undefined;
       this.stick.style.setProperty('--stick-x', this.side);
       this.stick.style.setProperty('--stick-y', -this.forward);
+    }
+
+    movementYaw(cameraYaw, groundIndex, routeYaw) {
+      const steer = this.steering;
+      const forward = this.forward > 0 && Math.abs(this.side) < this.forward * 0.22;
+      // Keep a held direction stable while the camera catches up. Returning the stick
+      // to forward or landing on a new tower cushion can pick up the next approach.
+      const newGround = groundIndex !== undefined && steer.groundIndex !== groundIndex;
+      const guided = forward && routeYaw !== null;
+      if (steer.yaw === undefined || (forward && !steer.wasForward) || (guided && newGround))
+        steer.yaw = guided ? routeYaw : cameraYaw;
+      if (groundIndex !== undefined) steer.groundIndex = groundIndex;
+      steer.wasForward = forward;
+      return steer.yaw;
+    }
+
+    turn(delta) {
+      if (this.steering?.yaw !== undefined) this.steering.yaw += delta;
     }
 
     release(id) {
